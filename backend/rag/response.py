@@ -1,11 +1,21 @@
 import os
+import sys
 import logging
+import json
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 
+# Add backend directory to sys.path to resolve imports of local modules
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if backend_dir not in sys.path:
+    sys.path.append(backend_dir)
+
+from ai.symptom_extractor import extract_symptoms
+from ai.decision_engine import get_risk, is_emergency
+
 # Load environment variables from .env file
-env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env')
+env_path = os.path.join(backend_dir, '.env')
 load_dotenv(env_path)
 
 # Setup logging
@@ -18,26 +28,27 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 SYSTEM_RULES = """You are a helpful medical health assistant.
 
 STRICT RULES:
-- Do NOT give a final diagnosis.
+- Do NOT give a final diagnosis, but DO infer a possible illness (e.g., 'viral infection' or 'flu' instead of just repeating 'fever and headache').
+- Do NOT just repeat the user's symptoms in the condition field.
 - Do NOT prescribe any medicines or dosages.
 - Only give general health guidance based on the context provided.
 - Keep language simple and easy to understand.
 - Always recommend consulting a doctor for proper diagnosis.
+- You MUST respond in JSON format ONLY. Do NOT include any introduction, explanations, or markdown syntax blocks.
 
-Use the trusted medical context to answer the user's question.
-If the context does not contain enough information, say so honestly."""
+Your response must be a single valid JSON object structured exactly as follows:
+{
+  "condition": "<infer possible illness based on symptoms, do NOT repeat the symptoms>",
+  "explanation": "<brief explanation based on context>",
+  "advice": "<general guidance and when to see a doctor>"
+}"""
 
 USER_TEMPLATE = """CONTEXT:
 {context}
 
-USER SYMPTOMS:
-{query}
+USER QUERY: {query}
 
-Respond in this exact format:
-
-Possible Condition: <what the symptoms might indicate>
-Explanation: <brief explanation based on context>
-Advice: <general guidance and when to see a doctor>"""
+Based on the context and the user query, output a JSON object matching the requested schema. DO NOT generate risk or emergency fields."""
 
 def format_chat_prompt(system, user_content, tokenizer=None):
     """Formats system and user messages into a model-compatible chat template."""
@@ -65,8 +76,7 @@ def format_chat_prompt(system, user_content, tokenizer=None):
 
 def load_vector_store():
     """Loads the FAISS vector database from disk."""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    vector_store_dir = os.path.join(os.path.dirname(current_dir), 'data', 'vector_store')
+    vector_store_dir = os.path.join(backend_dir, 'data', 'vector_store')
 
     if not os.path.exists(vector_store_dir):
         logging.error("Vector store not found. Run create_index.py first.")
@@ -116,7 +126,6 @@ def _get_llm():
         try:
             from langchain_huggingface import HuggingFaceEndpoint
             logging.info("Using Hugging Face Serverless API (Endpoint).")
-            # Using Qwen2.5-7B-Instruct via Hugging Face Serverless API (free & fast)
             llm = HuggingFaceEndpoint(
                 repo_id="Qwen/Qwen2.5-7B-Instruct",
                 task="text-generation",
@@ -167,36 +176,81 @@ def _get_llm():
 #  LLM RESPONSE GENERATION
 # ─────────────────────────────────────────────
 
-def generate_llm_response(context, query):
-    """Generates an LLM response using the prompt template and retrieved context."""
+def generate_llm_response(context, query, symptoms, risk, emergency):
+    """Generates an LLM response using the prompt template and retrieved context, forcing strict structure."""
     llm, tokenizer = _get_llm()
 
     if llm:
-        user_content = USER_TEMPLATE.format(context=context, query=query)
+        user_content = USER_TEMPLATE.format(
+            context=context,
+            query=query
+        )
         prompt = format_chat_prompt(SYSTEM_RULES, user_content, tokenizer)
 
         try:
             response = llm.invoke(prompt)
-            # Handle both string output (local Pipeline) and message content (ChatModel wrappers)
             if hasattr(response, 'content'):
-                return response.content
-            return response.strip()
+                response_text = response.content
+            else:
+                response_text = response.strip()
+            
+            # Clean markdown wrappers if present in model output
+            cleaned_text = response_text.strip()
+            if cleaned_text.startswith("```json"):
+                cleaned_text = cleaned_text[7:]
+            if cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text[3:]
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3]
+            cleaned_text = cleaned_text.strip()
+
+            # Ensure valid JSON output
+            try:
+                llm_json = json.loads(cleaned_text)
+                
+                # Extract only condition and advice from LLM
+                condition = llm_json.get("condition", "No condition provided.")
+                advice = llm_json.get("advice", "No advice provided.")
+                
+                # Debug log to confirm manual override
+                logging.info("LLM output ignored for emergency control")
+                
+                final_response = {
+                    "symptoms": symptoms,
+                    "risk": risk,
+                    "condition": condition,
+                    "advice": advice,
+                    "emergency": emergency
+                }
+                
+                return json.dumps(final_response)
+            except Exception as e:
+                logging.warning(f"LLM response was not valid JSON: {cleaned_text}. Error: {e}. Falling back.")
+                return _template_fallback(context, query, symptoms, risk, emergency)
+
         except Exception as e:
             logging.warning(f"LLM call failed ({e}). Falling back to template response.")
-            return _template_fallback(context, query)
+            return _template_fallback(context, query, symptoms, risk, emergency)
     else:
         logging.warning("No LLM available. Using template-based response.")
-        return _template_fallback(context, query)
+        return _template_fallback(context, query, symptoms, risk, emergency)
 
-def _template_fallback(context, query):
+def _template_fallback(context, query, symptoms, risk, emergency):
     """Generates a structured response without an LLM, using retrieved context directly."""
-    return (
-        f"Possible Condition: Based on your symptoms ({query}), "
-        f"the retrieved medical information suggests the following.\n\n"
-        f"Explanation:\n{context}\n\n"
-        f"Advice: This is general health information only. "
-        f"Please consult a qualified healthcare professional for proper diagnosis and treatment."
-    )
+    fallback_data = {
+        "symptoms": symptoms,
+        "risk": risk,
+        "condition": "Based on your symptoms, matching clinical records were retrieved.",
+        "advice": "Please consult a healthcare professional for proper evaluation.",
+        "emergency": emergency
+    }
+
+    if context:
+        clean_context = context.replace('"', '\\"').replace('\n', ' ')
+        fallback_data["condition"] = f"Matches found in database. Details: {clean_context}"
+        fallback_data["advice"] = "This is general health information only. Please consult a qualified doctor."
+
+    return json.dumps(fallback_data)
 
 # ─────────────────────────────────────────────
 #  MAIN RESPONSE FUNCTION
@@ -205,26 +259,53 @@ def _template_fallback(context, query):
 def get_response(query: str) -> str:
     """
     Main RAG response function.
-    Takes user symptoms, retrieves relevant context from FAISS,
-    and generates a structured, safe medical response.
+    Takes user symptoms, extracts clinical terms, computes risk indicators manually,
+    retrieves context from FAISS, and guarantees a strictly controlled structured JSON response.
     """
     try:
-        # Step 1: Load the vector database
+        # Step 1: Pre-process symptoms, risk levels, and strictly calculate emergency
+        symptoms = extract_symptoms(query)
+        risk = get_risk(symptoms)
+        emergency = is_emergency(risk)
+        
+        # Safety override
+        if risk != "HIGH":
+            emergency = False
+
+        # Step 2: Load the vector database
         vector_store = load_vector_store()
         if not vector_store:
-            return "Error: Could not load the medical knowledge base."
+            return json.dumps({
+                "symptoms": symptoms,
+                "risk": risk,
+                "condition": "Error: Could not load the medical knowledge base.",
+                "advice": "Please contact system administration.",
+                "emergency": emergency
+            })
 
-        # Step 2: Retrieve relevant context
+        # Step 3: Retrieve relevant context
         context = retrieve_context(vector_store, query)
         if not context:
-            return "Sorry, I could not find relevant medical information for your symptoms."
+            return json.dumps({
+                "symptoms": symptoms,
+                "risk": risk,
+                "condition": "No matching conditions found in database.",
+                "advice": "Please consult a doctor for advice.",
+                "emergency": emergency
+            })
 
-        # Step 3: Generate response
+        # Step 4: Generate response with manual overrides enforced
         logging.info("Generating response...")
-        response = generate_llm_response(context, query)
+        response = generate_llm_response(context, query, symptoms, risk, emergency)
 
         return response
 
     except Exception as e:
         logging.error(f"Error generating response: {e}")
-        return f"An error occurred while processing your request: {str(e)}"
+        return json.dumps({
+            "symptoms": [],
+            "risk": "LOW",
+            "condition": f"An error occurred while processing: {str(e)}",
+            "advice": "Please consult a medical professional.",
+            "emergency": False
+        })

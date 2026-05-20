@@ -140,7 +140,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     ttsBtnText.textContent = 'Listen';
                 }
             } else if (lastResponseText) {
-                speakResponse(lastResponseText);
+                // If the cached response is JSON, speak the readable parts instead of raw JSON
+                try {
+                    const parsed = JSON.parse(lastResponseText);
+                    const speakText = `Possible Condition: ${parsed.condition}. Advice: ${parsed.advice}`;
+                    speakResponse(speakText);
+                } catch(e) {
+                    speakResponse(lastResponseText);
+                }
             }
         });
     }
@@ -155,15 +162,40 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Helper to extract fields from LLM response
+    // Helper to extract fields from LLM response (supports JSON and legacy formats)
     function parseAIResponse(text) {
         const result = {
             condition: "General health symptom query",
             explanation: "",
-            advice: ""
+            advice: "",
+            risk: "LOW",
+            emergency: false
         };
 
         if (typeof text === 'string') {
+            const trimmed = text.strip ? text.strip() : text.trim();
+            
+            // If the response is a JSON string
+            if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+                try {
+                    const parsedJson = JSON.parse(trimmed);
+                    result.condition = parsedJson.condition || result.condition;
+                    
+                    const extractedSymptoms = Array.isArray(parsedJson.symptoms) && parsedJson.symptoms.length > 0 
+                        ? parsedJson.symptoms.join(', ') 
+                        : 'None detected';
+                    
+                    result.explanation = `Detected Symptoms: ${extractedSymptoms}\nAssessed Risk Level: ${parsedJson.risk || 'LOW'}`;
+                    result.advice = parsedJson.advice || result.advice;
+                    result.risk = parsedJson.risk || "LOW";
+                    result.emergency = !!parsedJson.emergency;
+                    return result;
+                } catch (e) {
+                    console.warn("JSON parsing failed, falling back to regex: ", e);
+                }
+            }
+
+            // Regex parsing fallback for plain-text model responses
             const conditionMatch = text.match(/Possible Condition:\s*([\s\S]*?)(?=Explanation:|$)/i);
             const explanationMatch = text.match(/Explanation:\s*([\s\S]*?)(?=Advice:|$)/i);
             const adviceMatch = text.match(/Advice:\s*([\s\S]*?)$/i);
@@ -227,13 +259,34 @@ document.addEventListener('DOMContentLoaded', () => {
             resultExplanation.textContent = parsed.explanation;
             resultAdvice.textContent = parsed.advice;
 
+            // Visual cues for emergency and risk level classification
+            const safetyBadge = document.querySelector('.safety-badge');
+            if (safetyBadge) {
+                if (parsed.emergency || parsed.risk === 'HIGH') {
+                    safetyBadge.textContent = '🚨 Emergency Case';
+                    safetyBadge.style.background = 'rgba(239, 68, 68, 0.2)';
+                    safetyBadge.style.color = '#f87171';
+                } else if (parsed.risk === 'MEDIUM') {
+                    safetyBadge.textContent = '⚠️ Moderate Risk';
+                    safetyBadge.style.background = 'rgba(245, 158, 11, 0.2)';
+                    safetyBadge.style.color = '#fbbf24';
+                } else {
+                    safetyBadge.textContent = '🛡️ Clinical Guidance';
+                    safetyBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+                    safetyBadge.style.color = '#10b981';
+                }
+            }
+
             // Transition UI
             loadingState.style.display = 'none';
             responseCard.style.display = 'block';
 
             // Auto-trigger TTS speech and cache text
             lastResponseText = aiResponseText;
-            speakResponse(aiResponseText);
+            
+            // Speak only readable content
+            const speakText = `Possible Condition: ${parsed.condition}. Advice: ${parsed.advice}`;
+            speakResponse(speakText);
 
         } catch (error) {
             console.error('Request failed:', error);
