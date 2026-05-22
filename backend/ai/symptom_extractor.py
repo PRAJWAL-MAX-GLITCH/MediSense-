@@ -1,33 +1,31 @@
 from typing import List
 
-# Predefined list of common medical symptoms to extract
 COMMON_SYMPTOMS = [
-    "fever",
-    "headache",
-    "cough",
-    "chest pain",
-    "fatigue",
-    "breathing issue",
-    "body pain"
+    # Pain
+    "chest pain", "back pain", "stomach pain", "abdominal pain", "joint pain",
+    "muscle pain", "body pain", "neck pain", "leg pain", "arm pain", "ear pain",
+    # Respiratory
+    "cough", "dry cough", "breathing issue", "shortness of breath", "wheezing",
+    # Fever / Temperature
+    "fever", "high temperature", "chills",
+    # Head / Neuro
+    "headache", "migraine", "dizziness", "fainting", "confusion",
+    # Digestive
+    "nausea", "vomiting", "diarrhea", "constipation", "bloating", "indigestion",
+    # Skin
+    "rash", "itching", "swelling", "redness",
+    # General
+    "fatigue", "weakness", "weight loss", "loss of appetite", "dehydration",
+    "sore throat", "runny nose", "sneezing", "blurred vision", "palpitations",
+    # Chronic
+    "diabetes", "hypertension", "high blood pressure", "blood sugar",
 ]
 
 def extract_symptoms(text: str) -> List[str]:
-    """
-    Analyzes the user input text to extract matches from a predefined list of common symptoms.
-    
-    Args:
-        text (str): The descriptive input containing user symptoms.
-        
-    Returns:
-        List[str]: A list of matched symptoms present in the text.
-    """
     if not text:
         return []
-    
-    # Convert input text to lowercase for case-insensitive matching
     lower_text = text.lower()
-    
-    # Detect matches from the common symptoms list
-    detected = [symptom for symptom in COMMON_SYMPTOMS if symptom in lower_text]
-    
+    # Multi-word symptoms first (longer match priority)
+    sorted_symptoms = sorted(COMMON_SYMPTOMS, key=len, reverse=True)
+    detected = [s for s in sorted_symptoms if s in lower_text]
     return detected

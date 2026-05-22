@@ -8,100 +8,65 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <div class="app-container">
+    <div class="chat-app-container">
         <!-- Header -->
-        <header class="app-header">
+        <header class="chat-header">
             <div class="logo-container">
                 <div class="logo-icon">🩺</div>
                 <h1 class="logo-text">MediSense <span class="logo-accent">AI</span></h1>
             </div>
-            <p class="tagline">Intelligent Health Risk Assistant</p>
         </header>
 
-        <!-- Main Card Container -->
-        <main class="main-card">
-            <section class="input-section">
-                <label for="symptom-input" class="input-label">Describe your symptoms below:</label>
-                <textarea 
-                    id="symptom-input" 
-                    placeholder="Describe your symptoms in detail (e.g., fever, mild chest pain, headache since morning...)"
-                    rows="4"
-                    maxlength="500"
-                ></textarea>
-                
-                <div class="action-bar">
-                    <span class="char-counter"><span id="char-count">0</span> / 500</span>
-                    <div class="button-group">
-                        <button id="voice-btn" class="btn btn-secondary" type="button">
-                            <span class="btn-icon">🎤</span>
-                            <span class="btn-text" id="voice-btn-text">Speak</span>
-                        </button>
-                        <button id="analyze-btn" class="btn btn-primary">
-                            <span class="btn-text">Analyze Symptoms</span>
-                            <div class="spinner" id="btn-spinner" style="display: none;"></div>
-                        </button>
+        <!-- Main Chat Area -->
+        <main class="chat-main" id="chat-main">
+            <div class="chat-bubbles" id="chat-bubbles-list">
+                <!-- Welcome Message -->
+                <div class="chat-bubble ai">
+                    <div class="bubble-content">
+                        👋 Hello! I am your AI health assistant.<br>
+                        Describe your symptoms to get started.
                     </div>
                 </div>
-            </section>
-
-            <!-- Results Panel -->
-            <section class="result-section" id="result-panel" style="display: none;">
-                <!-- Loading State -->
-                <div class="loading-state" id="loading-state" style="display: none;">
-                    <div class="pulse-ring"></div>
-                    <p class="loading-text">Analyzing your symptoms against clinical records...</p>
-                </div>
-
-                <!-- Response Content Card -->
-                <div class="response-card" id="response-card" style="display: none;">
-                    <div class="response-header">
-                        <span class="safety-badge">🛡️ Clinical Guidance</span>
-                        <button id="tts-btn" class="btn btn-secondary btn-sm" type="button" title="Read response aloud">
-                            <span class="btn-icon">🔊</span>
-                            <span id="tts-btn-text">Listen</span>
-                        </button>
-                    </div>
-                    
-                    <div class="response-body">
-                        <div class="response-group" id="group-condition">
-                            <h3 class="group-title">Possible Condition</h3>
-                            <p class="group-text" id="result-condition"></p>
-                        </div>
-                        
-                        <div class="response-group" id="group-explanation">
-                            <h3 class="group-title">Explanation</h3>
-                            <p class="group-text" id="result-explanation"></p>
-                        </div>
-                        
-                        <div class="response-group" id="group-advice">
-                            <h3 class="group-title">General Advice</h3>
-                            <p class="group-text" id="result-advice"></p>
-                        </div>
+            </div>
+            <!-- Typing Indicator (Hidden by default) -->
+            <div class="typing-indicator-container" id="typing-indicator" style="display: none;">
+                <div class="chat-bubble ai">
+                    <div class="typing-indicator">
+                        <span></span><span></span><span></span>
                     </div>
                 </div>
-
-                <!-- Error State -->
-                <div class="error-card" id="error-card" style="display: none;">
-                    <div class="error-icon">⚠️</div>
-                    <div class="error-info">
-                        <h4 class="error-title">Analysis Failed</h4>
-                        <p class="error-message" id="error-message">Could not connect to the MediSense server. Please check if the backend is running.</p>
-                    </div>
-                </div>
-            </section>
+            </div>
         </main>
 
-        <!-- Footer -->
-        <footer class="app-footer">
-            <p class="disclaimer">
-                <strong>Disclaimer:</strong> MediSense AI provides general educational guidance based on clinical texts. It is NOT a diagnostic tool and does not prescribe medicine. If you are experiencing a medical emergency, please call your local emergency services (911/111) immediately.
-            </p>
+        <!-- Error Banner (Hidden by default) -->
+        <div class="error-banner" id="error-banner" style="display: none;">
+            ⚠️ <span id="error-message">Connection error.</span>
+        </div>
+
+        <!-- Fixed Bottom Input Area -->
+        <footer class="chat-footer">
+            <div class="input-wrapper">
+                <button id="voice-btn" class="icon-btn" type="button" title="Speak">
+                    🎤
+                </button>
+                <textarea 
+                    id="chat-input" 
+                    placeholder="Message MediSense AI..." 
+                    rows="1" 
+                    maxlength="500"></textarea>
+                <button id="send-btn" class="icon-btn primary-icon-btn" type="button" title="Send">
+                    ➤
+                </button>
+            </div>
+            <div class="footer-disclaimer">
+                MediSense AI provides general educational guidance. It is NOT a diagnostic tool. In an emergency, call 911 immediately.
+            </div>
         </footer>
     </div>
     
-    <script src="script.js"></script>
+    <script type="module" src="js/app.js"></script>
 </body>
 </html>
