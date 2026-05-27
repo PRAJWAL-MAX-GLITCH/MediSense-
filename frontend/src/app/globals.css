@@ -4,6 +4,13 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+@layer base {
+  html, body {
+    background-color: #000000 !important;
+    color: #f1f5f9 !important;
+  }
+}
+
 html {
   background: #000000 !important;
   color-scheme: dark;
