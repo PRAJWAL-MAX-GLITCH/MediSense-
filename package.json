@@ -1,0 +1,11 @@
+{
+  "name": "medisense-monorepo",
+  "version": "1.0.0",
+  "description": "MediSense AI - Modern Health Assistant",
+  "workspaces": ["frontend", "backend"],
+  "scripts": {
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
+    "start:frontend": "cd frontend && npm start"
+  }
+}
