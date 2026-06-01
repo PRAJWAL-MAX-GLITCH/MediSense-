@@ -24,15 +24,14 @@ import os
 import sys
 import logging
 import json
-import re
-from html import unescape
+
 from typing import Dict, List, Tuple, Optional
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langdetect import detect
 from deep_translator import GoogleTranslator
-from tavily import TavilyClient
+# from tavily import TavilyClient  # Removed web search integration
 
 # Setup logging
 logging.basicConfig(
@@ -54,13 +53,13 @@ env_path = os.path.join(backend_dir, '.env')
 load_dotenv(env_path)
 
 # Initialize Tavily API for web search
-tavily_api_key = os.environ.get("TAVILY_API_KEY", "")
-tavily_client = TavilyClient(api_key=tavily_api_key) if tavily_api_key else None
-
-if tavily_api_key:
-    logger.info(f"✓ Tavily API configured (Key: {tavily_api_key[:10]}...)")
-else:
-    logger.warning("⚠ Tavily API key not found - web search will be unavailable")
+# Tavily client initialization removed – web search not used in pure medical assistant
+# tavily_api_key = os.environ.get("TAVILY_API_KEY", "")
+# tavily_client = TavilyClient(api_key=tavily_api_key) if tavily_api_key else None
+# if tavily_api_key:
+#     logger.info(f"✓ Tavily API configured (Key: {tavily_api_key[:10]}...)")
+# else:
+#     logger.warning("⚠ Tavily API key not found - web search will be unavailable")
 # ═══════════════════════════════════════════════════════════════════════════
 #  SECTION 1: LANGUAGE DETECTION & TRANSLATION
 # ═══════════════════════════════════════════════════════════════════════════
@@ -237,52 +236,9 @@ def is_greeting(query: str) -> bool:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def search_web(query: str) -> str:
-    """
-    Search web using Tavily API for general queries.
-    
-    Returns: Combined context from top 3 results (cleaned & deduplicated)
-    """
-    print(f"[WEB_SEARCH] Query: {query}")
-    
-    if not tavily_client:
-        logger.warning("[WEB_SEARCH] Tavily client not initialized - web search unavailable")
-        return ""
-    
-    try:
-        logger.info(f"[WEB_SEARCH] Searching for: {query}")
-        result = tavily_client.search(query, search_depth="basic", max_results=3)
-        print(f"[WEB_SEARCH] Found {len(result.get('results', []))} results")
-        
-        context_parts = []
-        seen_urls = set()
-        
-        for res in result.get('results', []):
-            url = res.get('url', '')
-            content = res.get('content', '')
-            
-            # Avoid duplicate sources
-            if url in seen_urls or not content:
-                continue
-            
-            seen_urls.add(url)
-            
-            # Clean HTML entities
-            content = unescape(content)
-            
-            # Limit content length per source (avoid huge contexts)
-            content = content[:500]
-            
-            context_parts.append(f"[Source: {url}]\n{content}")
-        
-        final_context = "\n\n".join(context_parts)
-        logger.info(f"[WEB_SEARCH] Context length: {len(final_context)} chars")
-        print(f"[WEB_SEARCH] Context prepared ({len(final_context)} chars)")
-        
-        return final_context
-    except Exception as e:
-        logger.error(f"[WEB_SEARCH] Exception: {e}")
-        print(f"[WEB_SEARCH] ERROR: {e}")
-        return ""
+    """Web search is disabled in the pure medical assistant mode. Returns empty context."""
+    return ""
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  SECTION 4: LLM INITIALIZATION
@@ -769,7 +725,7 @@ def get_response(query: str) -> str:
         # Step 1: Check for greeting (before translation)
         if is_greeting(query):
             logger.info("[MAIN] Greeting detected")
-            print(f"[MAIN] → Type: GREETING")
+            print("[MAIN] -> Type: GREETING")
             return generate_greeting_response()
         
         # Step 2: Translate to English for processing
@@ -786,16 +742,13 @@ def get_response(query: str) -> str:
         #  GENERAL PIPELINE (Perplexity Style)
         # ═══════════════════════════════════════════════════════════════════
         if query_type == "general":
-            print(f"[MAIN] ↳ GENERAL PIPELINE")
-            
-            # Web search
-            web_context = search_web(query_en)
-            
-            # LLM response generation
-            response = generate_general_response(web_context, query_en, user_language)
-            
-            print(f"[MAIN] ✓ Response ready")
-            return response
+                        # General queries are not supported in pure medical assistant mode
+            logger.info("[MAIN] Non-health query received – returning info response")
+            info_response = json.dumps({
+                "type": "info",
+                "message": "I am MediSense AI, a healthcare assistant. Please describe your symptoms or ask a health-related question."
+            }, ensure_ascii=False)
+            return translate_response_json(info_response, user_language)
         
         # ═══════════════════════════════════════════════════════════════════
         #  HEALTH PIPELINE (Doctor AI Style)

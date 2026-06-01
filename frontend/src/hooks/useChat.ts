@@ -80,18 +80,38 @@ export function useChat() {
   )
 
   const sendMessage = useCallback(async (content: string) => {
-    if (!currentSessionId || !content.trim()) return
+    if (!content.trim()) return
     setIsLoading(true)
+
+    let activeSessionId = currentSessionId
+    const cleanContent = content.trim()
+
+    // Dynamically create a new session if none is currently active
+    if (!activeSessionId) {
+      const newId = Date.now().toString()
+      const newSession: ChatSession = {
+        id: newId,
+        title: cleanContent.substring(0, 35) + '...',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      setSessions(prev => [newSession, ...prev])
+      setCurrentSessionId(newId)
+      activeSessionId = newId
+    }
 
     const userMsg: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: content.trim(),
+      content: cleanContent,
       timestamp: new Date(),
     }
 
+    const targetSessionId = activeSessionId
+
     setSessions(prev => prev.map(s =>
-      s.id === currentSessionId
+      s.id === targetSessionId
         ? { ...s, messages: [...s.messages, userMsg], updatedAt: new Date() }
         : s
     ))
@@ -100,7 +120,7 @@ export function useChat() {
       const res = await fetch(`${API_URL}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symptoms: content.trim() }),
+        body: JSON.stringify({ symptoms: cleanContent }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
@@ -117,11 +137,11 @@ export function useChat() {
       }
 
       setSessions(prev => prev.map(s =>
-        s.id === currentSessionId
+        s.id === targetSessionId
           ? {
               ...s,
               messages: [...s.messages, assistantMsg],
-              title: s.messages.length === 1 ? content.trim().substring(0, 35) + '...' : s.title,
+              title: s.title === 'New Chat' || s.title.includes('...') ? cleanContent.substring(0, 35) + '...' : s.title,
               updatedAt: new Date(),
             }
           : s
@@ -134,7 +154,7 @@ export function useChat() {
         timestamp: new Date(),
       }
       setSessions(prev => prev.map(s =>
-        s.id === currentSessionId
+        s.id === targetSessionId
           ? { ...s, messages: [...s.messages, errMsg], updatedAt: new Date() }
           : s
       ))
