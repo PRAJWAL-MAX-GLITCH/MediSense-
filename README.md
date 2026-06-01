@@ -1,121 +1,103 @@
 # 🩺 MediSense AI — Intelligent Health Risk Assistant
 
-MediSense AI is a full-stack AI-powered health guidance application. It uses a **Retrieval-Augmented Generation (RAG)** pipeline backed by a local FAISS vector store and Hugging Face LLM inference to provide structured, safe, and clinically aligned guidance on common health symptoms.
-
-The application features a **premium dark chat interface** — built with Next.js 14, TypeScript, and Tailwind CSS — where users can describe symptoms in natural language and receive structured AI analysis including risk levels, detected conditions, and general health advice.
+MediSense AI is a **full‑stack AI‑powered health guidance platform**. It combines a Retrieval‑Augmented Generation (RAG) pipeline, a local FAISS vector store, and Hugging Face LLM inference to deliver safe, structured medical advice.
 
 ---
 
-## 🚀 Key Features
-
-- **Premium Chat UI** — Next.js 14 + TypeScript frontend with glassmorphism, purple glow effects, and smooth animations
-- **Voice Input (Speech-to-Text)** — Speak symptoms directly using the built-in microphone button
-- **Multi-turn Follow-up** — App asks intelligent follow-up questions when symptoms are insufficient
-- **Symptom Extraction Engine** — `symptom_extractor.py` detects 35+ clinical symptoms from free-form text
-- **Risk Assessment** — `decision_engine.py` computes `LOW`, `MEDIUM`, or `HIGH` risk with emergency flag
-- **RAG Pipeline** — LangChain + FAISS with `all-MiniLM-L6-v2` embeddings retrieves relevant clinical context
+## 🚀 Premium Features
+- **Next.js 14 + TypeScript** front‑end with **Tailwind CSS**, glass‑morphism UI, and smooth animated transitions.
+- **Voice Input** – speak symptoms directly via the microphone button.
+- **Multi‑turn Follow‑up** – the assistant asks clarifying questions when needed.
+- **Symptom Extraction Engine** (`symptom_extractor.py`) – detects 35+ clinical keywords.
+- **Risk Assessment** (`decision_engine.py`) – computes **LOW / MEDIUM / HIGH** risk and an **emergency flag**.
+- **RAG Pipeline** – LangChain + FAISS with `all‑MiniLM‑L6‑v2` embeddings retrieves the most relevant clinical excerpts.
 - **Dual LLM Support**
-  - ☁️ **Cloud Mode** — Hugging Face Serverless API with `Qwen/Qwen2.5-7B-Instruct`
-  - 💻 **Local Fallback** — Auto-downloads `Qwen/Qwen2.5-0.5B-Instruct` if no token provided
-- **Symptoms-First Classification** — Symptoms are extracted before query classification, ensuring health queries never fall through to the general pipeline
-- **Structured JSON Responses** — Backend returns `{ symptoms, risk, condition, advice, emergency }`
-- **Chat History** — Sessions persisted in localStorage with sidebar navigation
-- **Dynamic Risk Badges** — 🚨 Emergency / ⚠️ Moderate Risk / 🛡️ Low Risk color-coded UI
+  - ☁️ **Cloud** – Hugging Face Serverless API (`Qwen/Qwen2.5‑7B‑Instruct`).
+  - 💻 **Local** – Auto‑download of `Qwen/Qwen2.5‑0.5B‑Instruct` if no token is supplied.
+- **Structured JSON Responses** – `{ symptoms, risk, condition, advice, emergency }`.
+- **Dynamic Risk Badges** – 🚨 Emergency, ⚠️ Moderate, 🛡️ Low risk.
+- **Persisted Chat History** – stored in `localStorage` with a sidebar navigator.
+- **Test Suite** – `test_response.py` validates the end‑to‑end RAG flow.
 
 ---
 
-## 🏗️ Project Structure
-
+## 📂 Project Structure
 ```text
 MediSense/
 ├── .gitignore
 ├── README.md
-├── package.json                        # Root monorepo config
+├── package.json                # Monorepo config (frontend & backend)
 ├── backend/
-│   ├── .env                            # Your environment variables (not committed)
-│   ├── .env.example                    # Config template
-│   ├── main.py                         # FastAPI server entry point
+│   ├── .env.example           # Template for environment variables
+│   ├── main.py                # FastAPI entry point
 │   ├── ai/
-│   │   ├── symptom_extractor.py        # Detects 35+ clinical symptoms from text
-│   │   └── decision_engine.py          # Computes risk level and emergency flag
+│   │   ├── symptom_extractor.py   # Symptom detection
+│   │   └── decision_engine.py     # Risk calculation
 │   ├── data/
-│   │   ├── raw/                        # 14 vetted clinical text files
-│   │   └── vector_store/               # FAISS index (generated locally, not committed)
+│   │   ├── raw/               # 14 vetted clinical text files
+│   │   └── vector_store/      # FAISS index (generated locally, not committed)
 │   └── rag/
-│       ├── create_index.py             # Builds FAISS vector index from raw data
-│       ├── data_ingestion.py           # Loads and chunks raw medical text files
-│       ├── process_data.py             # Text cleaning helpers
-│       ├── response.py                 # Core RAG + LLM pipeline (symptoms-first)
-│       ├── test_response.py            # CLI tool to test end-to-end response
-│       └── test_retrieval.py           # CLI tool to test FAISS retrieval
+│       ├── create_index.py      # Build FAISS index
+│       ├── response.py          # Core RAG + LLM pipeline (symptoms‑first)
+│       ├── test_response.py     # CLI end‑to‑end test
+│       └── test_retrieval.py    # FAISS retrieval test
 └── frontend/
-    ├── package.json                    # Next.js dependencies
+    ├── package.json
     ├── next.config.js
     ├── tailwind.config.ts
     ├── tsconfig.json
     └── src/
         ├── app/
-        │   ├── layout.tsx              # Root layout with Google Fonts
-        │   ├── page.tsx                # Home page
-        │   └── globals.css             # Dark theme, animations, glow effects
+        │   ├── layout.tsx      # Root layout with Google Fonts
+        │   ├── page.tsx        # Home page
+        │   └── globals.css     # Dark theme, glow effects
         ├── components/
-        │   └── ChatInterface.tsx       # Full chat UI — sidebar, messages, input bar
+        │   └── ChatInterface.tsx   # Full chat UI
         └── hooks/
-            └── useChat.ts              # Chat state, API calls, localStorage
+            └── useChat.ts      # Chat state, API calls, localStorage
 ```
 
 ---
 
 ## ⚙️ Installation & Setup
-
 ### Prerequisites
-- **Python 3.9+**
-- **Node.js 18+**
-- A modern browser (Chrome recommended for voice input)
+- **Python 3.9+**
+- **Node.js 18+**
+- Modern browser (Chrome recommended for voice input)
 
----
-
-### 1. Clone the Repository
-
+### 1️⃣ Clone the Repository
 ```bash
 git clone https://github.com/PRAJWAL-MAX-GLITCH/MediSense-.git
 cd MediSense-
 ```
 
-### 2. Backend Setup
-
+### 2️⃣ Backend Setup
 ```bash
-# Create and activate virtual environment
+# Virtual environment
 python -m venv .venv
-.venv\Scripts\Activate.ps1        # Windows PowerShell
-# source .venv/bin/activate        # macOS / Linux
+.venv\Scripts\Activate.ps1   # Windows PowerShell
+# .venv/bin/activate          # macOS / Linux
 
 # Install Python dependencies
-pip install fastapi uvicorn pydantic python-dotenv langchain langchain-community langchain-huggingface faiss-cpu sentence-transformers transformers torch langdetect deep-translator tavily-python
+pip install -r backend/requirements.txt
 ```
+> *If `requirements.txt` does not exist, install the packages manually as listed in the original docs.*
 
-### 3. Configure Environment Variables
-
+### 3️⃣ Configure Environment Variables
 ```bash
-copy backend\.env.example backend\.env
+cp backend/.env.example backend/.env
 ```
-
-Edit `backend\.env` and add your free [Hugging Face token](https://huggingface.co/settings/tokens):
-
+Edit `backend/.env` and add your free Hugging Face token (optional):
 ```env
-HUGGINGFACEHUB_API_TOKEN=hf_xxxxxxxxxxxxxxxx
+HUGGINGFACEHUB_API_TOKEN=your_token_here
 ```
+*Without a token the app will fall back to the lightweight local model.*
 
-> If left blank, the app auto-downloads and runs `Qwen2.5-0.5B-Instruct` locally (slower).
-
-### 4. Build the FAISS Knowledge Base (One-Time)
-
+### 4️⃣ Build the Knowledge Base (one‑time)
 ```bash
 python backend/rag/create_index.py
 ```
-
-### 5. Frontend Setup
-
+### 5️⃣ Frontend Setup
 ```bash
 cd frontend
 npm install
@@ -123,69 +105,58 @@ npm install
 
 ---
 
-## 🖥️ Running the Application
-
+## ▶️ Running the Application
 Open **two terminals**:
-
-**Terminal 1 — Backend**
+1️⃣ **Backend**
 ```bash
-# From project root, with .venv activated
+# From project root, with venv active
 python backend/main.py
 ```
-
-**Terminal 2 — Frontend**
+2️⃣ **Frontend**
 ```bash
 cd frontend
-npm run dev
+npm run dev   # Starts Next.js dev server on http://localhost:3000
 ```
-
-Open your browser at:
-```
-http://localhost:3000
-```
+Visit the URL and start chatting!
 
 ---
 
-## 🔁 How It Works
-
+## 🧪 Testing
+A small test harness is provided to ensure the RAG pipeline works end‑to‑end:
+```bash
+python backend/rag/test_response.py "I have a persistent cough and mild fever"
 ```
-User types / speaks symptoms
-         ↓
-symptom_extractor.py — detects 35+ clinical keywords (symptoms-first)
-         ↓
-classify_query() — symptoms present → always health pipeline
-         ↓
-Follow-up gatekeeper — < 2 symptoms → ask follow-up questions
-         ↓
-decision_engine.py — computes risk (LOW / MEDIUM / HIGH) + emergency flag
-         ↓
-FAISS vector store — retrieves top-3 relevant clinical document chunks
-         ↓
-Qwen LLM (Cloud or Local) — generates condition + advice only
-         ↓
-JSON response: { type, symptoms, risk, condition, advice, emergency }
-         ↓
-Next.js Chat UI — renders bubble with colour-coded risk badge
+The script prints the structured JSON response and verifies that the vector store loads correctly.
+
+---
+
+## 📚 How It Works
+```mermaid
+flowchart TD
+    A[User inputs symptoms] --> B[Symptom Extractor]
+    B --> C[Risk Assessment]
+    C --> D[FAISS Vector Store]
+    D --> E[LLM (cloud/local)]
+    E --> F[JSON Response]
+    F --> G[Next.js UI]
 ```
 
 ---
 
 ## 🛠️ Tech Stack
-
 | Layer | Technology |
 |---|---|
-| Frontend | Next.js 14, TypeScript, Tailwind CSS |
-| UI Styling | Glassmorphism, Framer-style CSS animations |
-| Backend | FastAPI, Python 3.9+ |
-| LLM | Qwen2.5-7B (cloud) / Qwen2.5-0.5B (local) |
-| Embeddings | `all-MiniLM-L6-v2` via sentence-transformers |
+| Frontend | Next.js 14, TypeScript, Tailwind CSS |
+| UI Styling | Glassmorphism, CSS animations |
+| Backend | FastAPI, Python 3.9+ |
+| LLM | Qwen2.5‑7B (cloud) / Qwen2.5‑0.5B (local) |
+| Embeddings | `all‑MiniLM‑L6‑v2` via sentence‑transformers |
 | Vector Store | FAISS (local) |
-| RAG Framework | LangChain + LangChain-HuggingFace |
-| Translation | deep-translator + langdetect |
-| Web Search | Tavily API (optional) |
+| RAG Framework | LangChain + LangChain‑HuggingFace |
+| Translation | deep‑translator + langdetect |
+| Web Search (optional) | Tavily API |
 
 ---
 
 ## 🛡️ Clinical Disclaimer
-
-MediSense AI is built **solely for educational and informational purposes**. It is **NOT** a clinical diagnostic tool and must not be used as a substitute for professional medical advice, diagnosis, or treatment. Always consult a qualified healthcare professional for any medical concerns. In an emergency, call your local emergency services **(911 / 112)** immediately.
+MediSense AI is **strictly for educational and informational purposes**. It is **not** a diagnostic tool and must never replace professional medical advice, diagnosis, or treatment. In emergencies, call your local emergency services (**911 / 112**).
