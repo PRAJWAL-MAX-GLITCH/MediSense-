@@ -16,6 +16,17 @@ MediSense AI is a **full-stack AI-powered health guidance platform**. It combine
 
 ---
 
+## 🛠️ Tech Stack
+| Layer | Technology |
+|---|---|
+| **Frontend** | Next.js 14, React, Tailwind CSS |
+| **Backend** | FastAPI, Python 3.11, Uvicorn |
+| **Database** | SQLite, SQLAlchemy |
+| **AI / NLP** | LangChain, Hugging Face, FAISS, PyTorch |
+| **Auth** | JWT, bcrypt |
+
+---
+
 ## ⚙️ Local Setup
 
 ### Prerequisites
