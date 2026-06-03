@@ -60,113 +60,163 @@ load_dotenv(env_path)
 #     logger.info(f"✓ Tavily API configured (Key: {tavily_api_key[:10]}...)")
 # else:
 #     logger.warning("⚠ Tavily API key not found - web search will be unavailable")
-# ═══════════════════════════════════════════════════════════════════════════
-#  SECTION 1: LANGUAGE DETECTION & TRANSLATION
-# ═══════════════════════════════════════════════════════════════════════════
+# ─── Language code to Google Translator target mapping ──────────────────────
+# langdetect codes that need remapping to Google Translate codes
+_LANG_REMAP = {
+    "zh-cn": "zh-CN",
+    "zh-tw": "zh-TW",
+    "jw":    "jv",    # Javanese
+    "iw":    "he",    # Hebrew (old ISO)
+}
+
+# Languages where langdetect is unreliable for short medical text.
+# For these we keep our manual overrides; everything else goes to langdetect.
+_DEVANAGARI_RANGE = (0x0900, 0x097F)
+_ARABIC_RANGE     = (0x0600, 0x06FF)
+
 
 def detect_language(text: str) -> str:
     """
-    Detect language from user input.
-    
-    Priority:
-    1. Check for specific language keywords first (Hindi, Marathi)
-    2. Use langdetect as fallback
-    3. Default to English
-    
-    Returns: language code (en, hi, mr, etc.)
+    Detect the language of the user's message.
+
+    Strategy
+    --------
+    1.  Script-level Unicode checks (fast, reliable for non-Latin scripts).
+        • Devanagari  → distinguish Hindi vs Marathi by keyword.
+        • Arabic      → 'ar'
+    2.  For Latin-script text, use langdetect (supports 55+ languages).
+        • Guard against mis-detection of short English medical text
+          by checking a small English stopword set first.
+    3.  Fallback to 'en' if everything fails.
     """
+    import re
+
+    text_s  = text.strip()
+    text_lo = text_s.lower()
+
+    # ── 1a. Devanagari (Hindi / Marathi) ─────────────────────────────────────
+    if re.search(r'[\u0900-\u097f]', text_s):
+        marathi_markers = {
+            "आहे", "मला", "खोकला", "त्रास", "झाला", "ताप", "दुखणे",
+            "डोके", "पोट", "सर्दी", "कसा", "कशी", "कसे", "आहात",
+            "तुझे", "माझे", "आम्ही", "पाहिजे",
+        }
+        words = set(re.findall(r'\w+', text_lo))
+        return "mr" if any(w in marathi_markers for w in words) else "hi"
+
+    # ── 1b. Arabic script ─────────────────────────────────────────────────────
+    if re.search(r'[\u0600-\u06ff]', text_s):
+        return "ar"
+
+    # ── 1c. Other non-Latin scripts (Cyrillic, CJK, Tamil, Telugu…) ───────────
+    non_latin_scripts = [
+        (r'[\u0400-\u04ff]', 'ru'),   # Cyrillic  → Russian default
+        (r'[\u4e00-\u9fff]', 'zh-CN'),# CJK
+        (r'[\u3040-\u30ff]', 'ja'),   # Japanese (Hiragana/Katakana)
+        (r'[\uac00-\ud7af]', 'ko'),   # Korean (Hangul)
+        (r'[\u0b80-\u0bff]', 'ta'),   # Tamil
+        (r'[\u0c00-\u0c7f]', 'te'),   # Telugu
+        (r'[\u0980-\u09ff]', 'bn'),   # Bengali
+        (r'[\u0a00-\u0a7f]', 'pa'),   # Punjabi / Gurmukhi
+        (r'[\u0900-\u097f]', 'hi'),   # Devanagari fallback (already handled above)
+    ]
+    for pattern, lang_code in non_latin_scripts:
+        if re.search(pattern, text_s):
+            return lang_code
+
+    # ── 2. Latin script – check English stopwords first ───────────────────────
+    words = set(text_lo.split())
+    english_stopwords = {
+        "i", "have", "and", "cough", "fever", "pain", "headache", "cold",
+        "the", "my", "is", "in", "it", "you", "that", "was", "for", "on",
+        "are", "with", "as", "at", "dizziness", "sore", "throat",
+        "fatigue", "diarrhea", "chest", "body", "ache", "sick", "hurt",
+        "nausea", "vomit", "rash", "swelling", "breath", "doctor",
+    }
+    # Transliterated Marathi / Hindi overrides (Latin)
+    marathi_trans = {
+        "mala", "aahe", "aala", "tula", "kase", "kasa", "ahes",
+        "majha", "majhi", "khali", "amhi", "ghya", "takla", "khokla",
+        "dokedukhi", "potdukhi", "tras",
+    }
+    hindi_trans = {
+        "hai", "kya", "mera", "mujhe", "hota", "raha", "bukhar",
+        "mujko", "mere", "hun", "aapke", "khansi", "petdard",
+    }
+
+    en_hits = sum(1 for w in words if w in english_stopwords)
+    mr_hits = sum(1 for w in words if w in marathi_trans)
+    hi_hits = sum(1 for w in words if w in hindi_trans)
+
+    if en_hits > 0 and mr_hits == 0 and hi_hits == 0:
+        return "en"
+    if mr_hits > hi_hits and mr_hits > 0:
+        return "mr"
+    if hi_hits > 0:
+        return "hi"
+
+    # ── 3. Full langdetect fallback ───────────────────────────────────────────
     try:
-        text_lower = text.lower()
-        words = set(text_lower.split())
-        
-        # Marathi detection keywords
-        marathi_keywords = {
-            "mala", "aahe", "aala", "tula", "kase", "kasa", "ahes",
-            "majha", "majhi", "tap", "dukh", "dard", "khali", "hot",
-            "amhi", "he", "te", "pan", "ghya", "takla"
-        }
-        
-        # Hindi detection keywords
-        hindi_keywords = {
-            "hai", "kya", "mera", "mujhe", "hota", "raha", "bukhar",
-            "dard", "mujko", "mere", "hun", "aapke", "cough", "jor"
-        }
-        
-        if any(word in words for word in marathi_keywords):
-            return "mr"
-        if any(word in words for word in hindi_keywords):
-            return "hi"
-        
-        # Fallback to langdetect
-        detected_lang = detect(text)
-        
-        # Map unsupported languages to Marathi (reasonable default for Indian context)
-        unsupported_languages = {
-            'so', 'sw', 'id', 'tl', 'hr', 'sq', 'cy', 'et', 'nl', 'af', 'tr'
-        }
-        if detected_lang in unsupported_languages:
-            return "mr"
-        
-        return detected_lang
+        code = detect(text_s)
+        return _LANG_REMAP.get(code, code)   # remap if needed, else return as-is
     except Exception as e:
-        logger.warning(f"Language detection failed: {e}. Defaulting to English.")
+        logger.warning(f"langdetect failed: {e}. Defaulting to 'en'.")
         return "en"
 
 
 def translate_to_english(text: str) -> str:
-    """Translate user input to English for processing."""
+    """Translate any language → English for internal processing."""
     try:
-        return GoogleTranslator(source='auto', target='en').translate(text)
+        return GoogleTranslator(source="auto", target="en").translate(text) or text
     except Exception as e:
-        logger.warning(f"Translation to English failed: {e}. Using original text.")
+        logger.warning(f"Translation to English failed: {e}. Using original.")
         return text
 
 
 def translate_to_user_language(text: str, target_lang: str) -> str:
-    """Translate generated response back to user's language."""
-    if target_lang == "en":
+    """Translate English response back to user's detected language."""
+    if target_lang == "en" or not text:
         return text
     try:
-        return GoogleTranslator(source='en', target=target_lang).translate(text)
+        return GoogleTranslator(source="en", target=target_lang).translate(text) or text
     except Exception as e:
-        logger.warning(f"Translation to {target_lang} failed: {e}. Using English.")
+        logger.warning(f"Translation to '{target_lang}' failed: {e}. Using English.")
         return text
 
 
 def translate_response_json(payload: str, language: str) -> str:
     """
-    Translate user-facing text in JSON response to original language.
-    
-    JSON keys (type, risk, etc.) are NEVER translated.
-    Only user-facing content (answer, condition, advice, questions) is translated.
+    Walk the JSON response and translate every user-visible text field
+    into the user's language.  JSON structural keys are never translated.
     """
     if language == "en":
         return payload
-    
+
+    TRANSLATABLE = {
+        "answer", "condition", "advice", "possible_conditions",
+        "risk_explanation", "recommendations", "emergency_indicators",
+        "additional_notes", "message", "questions", "symptoms",
+    }
+
     try:
         data = json.loads(payload) if isinstance(payload, str) else payload
-        
-        def translate_value(value, key_name=None):
+
+        def _translate(value, key=None):
             if isinstance(value, str):
-                # Translate user-facing content only
-                if key_name in {"answer", "condition", "advice"}:
-                    return translate_to_user_language(value, language)
-                return value
-            
+                return translate_to_user_language(value, language) if key in TRANSLATABLE else value
             if isinstance(value, list):
-                if key_name == "questions":
-                    return [translate_to_user_language(item, language) if isinstance(item, str) else translate_value(item, key_name) for item in value]
-                if key_name == "symptoms":
-                    return [translate_to_user_language(item, language) if isinstance(item, str) else translate_value(item, key_name) for item in value]
-                return [translate_value(item, key_name) for item in value]
-            
+                if key in TRANSLATABLE:
+                    return [
+                        translate_to_user_language(item, language)
+                        if isinstance(item, str) else _translate(item, key)
+                        for item in value
+                    ]
+                return [_translate(item, key) for item in value]
             if isinstance(value, dict):
-                return {k: translate_value(v, k) for k, v in value.items()}
-            
+                return {k: _translate(v, k) for k, v in value.items()}
             return value
-        
-        translated_data = translate_value(data)
-        return json.dumps(translated_data, ensure_ascii=False)
+
+        return json.dumps(_translate(data), ensure_ascii=False)
     except Exception as e:
         logger.warning(f"JSON translation failed: {e}. Returning original.")
         return payload
@@ -223,10 +273,17 @@ def classify_query(query: str) -> str:
 
 
 def is_greeting(query: str) -> bool:
-    """Check if query is a simple greeting."""
+    """Check if query is a simple greeting (English, Hindi, and Marathi)."""
     greeting_queries = {
+        # English
         "hi", "hello", "hey", "greetings", "good morning",
-        "good afternoon", "good evening", "good night", "howdy"
+        "good afternoon", "good evening", "good night", "howdy",
+        # Hindi (Devanagari)
+        "नमस्ते", "नमस्कार", "हेलो", "हाय",
+        # Marathi (Devanagari)
+        "नमस्कार", "नमस्ते",
+        # Transliterated
+        "namaste", "namaskar", "salam", "salaam"
     }
     normalized = query.lower().strip()
     return normalized in greeting_queries
@@ -241,8 +298,12 @@ def search_web(query: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  SECTION 4: LLM INITIALIZATION
+#  SECTION 4: LLM INITIALIZATION & CACHING
 # ═══════════════════════════════════════════════════════════════════════════
+
+_cached_llm = None
+_cached_tokenizer = None
+_cached_vector_store = None
 
 def get_llm_and_tokenizer():
     """
@@ -250,8 +311,15 @@ def get_llm_and_tokenizer():
     1. Hugging Face Serverless API (if token provided)
     2. Local Transformers Pipeline (fallback)
     
+    Uses module-level global cache variables to ensure the model and tokenizer
+    are only loaded once, preventing high response latency on subsequent requests.
+    
     Returns: (llm, tokenizer) or (None, None) if load fails
     """
+    global _cached_llm, _cached_tokenizer
+    if _cached_llm is not None:
+        return _cached_llm, _cached_tokenizer
+        
     hf_token = os.environ.get("HUGGINGFACEHUB_API_TOKEN") or os.environ.get("HF_TOKEN")
     
     # Try Hugging Face Serverless API first
@@ -259,14 +327,15 @@ def get_llm_and_tokenizer():
         try:
             from langchain_huggingface import HuggingFaceEndpoint
             logger.info("[LLM] Using Hugging Face Serverless API (Qwen2.5-7B)")
-            llm = HuggingFaceEndpoint(
+            _cached_llm = HuggingFaceEndpoint(
                 repo_id="Qwen/Qwen2.5-7B-Instruct",
                 task="text-generation",
                 max_new_tokens=256,
                 temperature=0.1,
                 huggingfacehub_api_token=hf_token
             )
-            return llm, None
+            _cached_tokenizer = None
+            return _cached_llm, _cached_tokenizer
         except Exception as e:
             logger.warning(f"[LLM] Hugging Face API failed: {e}")
     
@@ -279,7 +348,7 @@ def get_llm_and_tokenizer():
         logger.info("[LLM] Loading local Qwen2.5-0.5B model...")
         model_id = "Qwen/Qwen2.5-0.5B-Instruct"
         
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        _cached_tokenizer = AutoTokenizer.from_pretrained(model_id)
         device = 0 if torch.cuda.is_available() else -1
         
         model = AutoModelForCausalLM.from_pretrained(
@@ -291,7 +360,7 @@ def get_llm_and_tokenizer():
         pipe = pipeline(
             "text-generation",
             model=model,
-            tokenizer=tokenizer,
+            tokenizer=_cached_tokenizer,
             max_new_tokens=256,
             temperature=0.1,
             device=device,
@@ -299,7 +368,8 @@ def get_llm_and_tokenizer():
         )
         
         logger.info("[LLM] Local model loaded successfully")
-        return HuggingFacePipeline(pipeline=pipe), tokenizer
+        _cached_llm = HuggingFacePipeline(pipeline=pipe)
+        return _cached_llm, _cached_tokenizer
     except Exception as e:
         logger.error(f"[LLM] Local model load failed: {e}")
     
@@ -311,7 +381,11 @@ def get_llm_and_tokenizer():
 # ═══════════════════════════════════════════════════════════════════════════
 
 def load_vector_store():
-    """Load FAISS vector store for medical document retrieval."""
+    """Load FAISS vector store for medical document retrieval. Caches database in memory."""
+    global _cached_vector_store
+    if _cached_vector_store is not None:
+        return _cached_vector_store
+        
     vector_store_dir = os.path.join(backend_dir, 'data', 'vector_store')
     
     if not os.path.exists(vector_store_dir):
@@ -321,13 +395,13 @@ def load_vector_store():
     try:
         logger.info(f"[FAISS] Loading vector store from {vector_store_dir}")
         embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        vector_store = FAISS.load_local(
+        _cached_vector_store = FAISS.load_local(
             vector_store_dir,
             embeddings,
             allow_dangerous_deserialization=True
         )
         logger.info("[FAISS] Vector store loaded successfully")
-        return vector_store
+        return _cached_vector_store
     except Exception as e:
         logger.error(f"[FAISS] Load failed: {e}")
         return None
@@ -397,26 +471,41 @@ Context: {context}
 
 Respond ONLY with this JSON structure (no other text):
 {{"type": "general", "answer": "<your answer here>"}}"""
-
-HEALTH_SYSTEM_PROMPT = """You are a clinical medical assistant providing health guidance.
+HEALTH_SYSTEM_PROMPT = """You are an expert clinical medical assistant providing professional health guidance and SaaS-grade diagnostic assessments.
 
 STRICT RULES:
-- Analyze symptoms and infer a possible condition (not just repeat symptoms)
-- Provide general guidance and when to see a doctor
-- Do NOT prescribe medicines, dosages, or specific treatments
-- Keep language simple and accessible
-- Always emphasize consulting a healthcare professional
-- Respond ONLY with valid JSON, nothing else
+- Analyze the reported symptoms and suggest 1-3 possible medically relevant conditions based on the provided context.
+- Never use symptoms as conditions. For example, do not output "Fever" or "Cough" as a condition; instead suggest "Viral Infection", "Upper Respiratory Infection", etc.
+- Provide a detailed clinical risk assessment explanation (minimum 2-4 complete sentences) explaining why this risk level is assigned.
+- Provide a minimum of 4 clear, actionable clinical recommendations/lifestyle advice items.
+- List specific emergency indicators detailing when the patient should seek immediate emergency care.
+- Include additional educational notes addressing symptom overlap, limitations of AI, and the necessity of professional medical consultation.
+- Do NOT prescribe specific medications, dosages, or write prescriptions.
+- Keep the language clinical, professional, and accessible.
+- Respond ONLY with a valid JSON object matching the exact schema. Do not include markdown code block formatting (like ```json) in your raw output, and do not append conversational text before or after the JSON."""
 
-IMPORTANT: Your response MUST be valid JSON only. No markdown, no extra text."""
+HEALTH_USER_PROMPT = """Medical Context from Database: {context}
 
-HEALTH_USER_PROMPT = """Medical Context: {context}
-
-Patient Symptoms: {symptoms}
-Patient Query: {query}
+Patient Reported Symptoms: {symptoms}
+Patient Original Query: {query}
 
 Provide clinical guidance in this JSON format ONLY:
-{{"condition": "<possible condition based on symptoms>", "advice": "<general guidance and when to see a doctor>"}}"""
+{{
+  "possible_conditions": ["Condition A", "Condition B", "Condition C"],
+  "risk_explanation": "Detailed explanation of risk based on the reported symptoms (at least 2-4 sentences).",
+  "recommendations": [
+    "First specific recommendation",
+    "Second specific recommendation",
+    "Third specific recommendation",
+    "Fourth specific recommendation"
+  ],
+  "emergency_indicators": [
+    "First emergency indicator",
+    "Second emergency indicator"
+  ],
+  "additional_notes": "Disclaimer and educational context about symptom overlap, limitations of AI, and seeking professional diagnosis."
+}}"""
+
 
 FOLLOWUP_SYSTEM_PROMPT = """You are a medical AI assistant helping doctors understand symptoms better.
 
@@ -487,14 +576,11 @@ def generate_greeting_response() -> str:
     })
 
 
-def generate_followup_questions(symptoms: List[str]) -> List[str]:
+def generate_followup_questions(symptoms: List[str], chat_history: List[dict] = None, llm=None, tokenizer=None) -> List[str]:
     """
     Generate follow-up questions to gather more symptom information.
-    
     Uses LLM if available, falls back to rule-based responses.
     """
-    llm, tokenizer = get_llm_and_tokenizer()
-    
     if llm:
         try:
             symptoms_text = ", ".join(symptoms) if symptoms else "not specified"
@@ -561,7 +647,7 @@ def generate_followup_questions(symptoms: List[str]) -> List[str]:
     ]
 
 
-def generate_general_response(web_context: str, query: str, language: str = "en") -> str:
+def generate_general_response(web_context: str, query: str, language: str = "en", llm=None, tokenizer=None) -> str:
     """
     Generate response for general (non-medical) queries.
     
@@ -572,8 +658,6 @@ def generate_general_response(web_context: str, query: str, language: str = "en"
     4. Translate if needed
     """
     print(f"[GENERAL_RESPONSE] Generating for: {query[:50]}...")
-    
-    llm, tokenizer = get_llm_and_tokenizer()
     
     if llm:
         try:
@@ -626,26 +710,33 @@ def generate_general_response(web_context: str, query: str, language: str = "en"
     
     return translate_response_json(result, language)
 
-
 def generate_health_analysis(
     faiss_context: str,
     query: str,
     symptoms: List[str],
     risk_level: str,
     is_emergency_case: bool,
-    language: str = "en"
+    language: str = "en",
+    llm=None,
+    tokenizer=None
 ) -> str:
     """
     Generate medical analysis response using LLM + FAISS context.
     
-    Returns: JSON with condition, advice, risk assessment, emergency flag
+    Returns: JSON with structured medical report.
     """
     print(f"[HEALTH_ANALYSIS] Analyzing {len(symptoms)} symptoms...")
     
-    llm, tokenizer = get_llm_and_tokenizer()
-    
-    condition = "Unable to determine condition"
-    advice = "Please consult a healthcare professional for proper evaluation"
+    report = {
+        "symptoms": symptoms,
+        "possible_conditions": ["Unable to determine condition"],
+        "risk_level": risk_level,
+        "risk_explanation": "Please consult a healthcare professional for proper evaluation.",
+        "recommendations": ["Consult a doctor"],
+        "emergency_indicators": ["Seek emergency care if symptoms severely worsen"],
+        "additional_notes": "This is an AI-generated analysis, not a medical diagnosis.",
+        "emergency": is_emergency_case
+    }
     
     if llm:
         try:
@@ -669,9 +760,37 @@ def generate_health_analysis(
             cleaned = clean_llm_output(response_text)
             parsed = json.loads(cleaned)
             
-            condition = parsed.get("condition", condition)
-            advice = parsed.get("advice", advice)
-            
+            # Extract possible conditions
+            conds = parsed.get("possible_conditions", [])
+            if isinstance(conds, list) and len(conds) > 0:
+                report["possible_conditions"] = conds
+            elif isinstance(conds, str) and conds.strip():
+                report["possible_conditions"] = [conds.strip()]
+                
+            # Extract risk explanation
+            explain = parsed.get("risk_explanation", "")
+            if isinstance(explain, str) and explain.strip():
+                report["risk_explanation"] = explain.strip()
+                
+            # Extract recommendations
+            recs = parsed.get("recommendations", [])
+            if isinstance(recs, list) and len(recs) > 0:
+                report["recommendations"] = recs
+            elif isinstance(recs, str) and recs.strip():
+                report["recommendations"] = [recs.strip()]
+                
+            # Extract emergency indicators
+            emerg = parsed.get("emergency_indicators", [])
+            if isinstance(emerg, list) and len(emerg) > 0:
+                report["emergency_indicators"] = emerg
+            elif isinstance(emerg, str) and emerg.strip():
+                report["emergency_indicators"] = [emerg.strip()]
+                
+            # Extract additional notes
+            notes = parsed.get("additional_notes", "")
+            if isinstance(notes, str) and notes.strip():
+                report["additional_notes"] = notes.strip()
+                
             print(f"[HEALTH_ANALYSIS] ✓ Generated")
         except json.JSONDecodeError as e:
             logger.error(f"[HEALTH_ANALYSIS] JSON parse failed: {e}")
@@ -681,25 +800,49 @@ def generate_health_analysis(
             print(f"[HEALTH_ANALYSIS] Error: {e}")
     else:
         logger.warning("[HEALTH_ANALYSIS] No LLM available - using fallback")
+        
+    # --- VALIDATION LAYER (Phase 3) ---
+    # Ensure no fields are empty and everything aligns with production expectations.
+    if not report.get("symptoms") or not isinstance(report["symptoms"], list) or len(report["symptoms"]) == 0:
+        report["symptoms"] = symptoms if symptoms else ["General physical discomfort"]
+        
+    if not report.get("possible_conditions") or not isinstance(report["possible_conditions"], list) or len(report["possible_conditions"]) == 0 or report["possible_conditions"] == ["Unable to determine condition"]:
+        report["possible_conditions"] = ["Undetermined general health concern"]
+        
+    if not report.get("risk_level"):
+        report["risk_level"] = risk_level if risk_level else "LOW"
+        
+    if not report.get("recommendations") or not isinstance(report["recommendations"], list) or len(report["recommendations"]) == 0 or report["recommendations"] == ["Consult a doctor"]:
+        report["recommendations"] = [
+            "Rest and monitor your physical symptoms carefully.",
+            "Stay well hydrated by drinking clear fluids.",
+            "Avoid strenuous physical activities or unnecessary stress.",
+            "Consult a certified healthcare professional if symptoms persist or worsen."
+        ]
+        
+    if not report.get("risk_explanation") or report["risk_explanation"] == "Please consult a healthcare professional for proper evaluation.":
+        report["risk_explanation"] = f"Based on the reported symptoms, the overall diagnostic risk level is evaluated as {report['risk_level']}. Please consult a medical professional for a proper clinical evaluation."
+        
+    if not report.get("emergency_indicators") or not isinstance(report["emergency_indicators"], list) or len(report["emergency_indicators"]) == 0 or report["emergency_indicators"] == ["Seek emergency care if symptoms severely worsen"]:
+        report["emergency_indicators"] = [
+            "Difficulty breathing, severe shortness of breath, or wheezing",
+            "Persistent pain, pressure, or tightness in the chest",
+            "New confusion, extreme dizziness, or inability to wake up",
+            "Pale, gray, or blue skin, lips, or nail beds indicating lack of oxygen"
+        ]
+        
+    if not report.get("additional_notes") or report["additional_notes"] == "This is an AI-generated analysis, not a medical diagnosis.":
+        report["additional_notes"] = "This report is generated by an artificial intelligence assistant for educational purposes only. It is not a substitute for professional medical advice, diagnosis, or treatment. Multiple health conditions can present with overlapping symptoms."
+        
+    report["type"] = "analysis"
     
-    result = json.dumps({
-        "type": "analysis",
-        "symptoms": symptoms,
-        "risk": risk_level,
-        "condition": condition,
-        "advice": advice,
-        "emergency": is_emergency_case
-    }, ensure_ascii=False)
-    
+    result = json.dumps(report, ensure_ascii=False)
     return translate_response_json(result, language)
-
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 #  SECTION 8: MAIN ENTRY POINT
 # ═══════════════════════════════════════════════════════════════════════════
 
-def get_response(query: str) -> str:
+def get_response(query: str, vector_store=None, llm=None, tokenizer=None, chat_history: List[dict] = None) -> str:
     """
     Main entry point: Process user query and return structured JSON response.
     
@@ -722,31 +865,37 @@ def get_response(query: str) -> str:
         logger.info(f"[LANG] Detected: {user_language}")
         print(f"[MAIN] Language: {user_language}")
         
-        # Step 1: Check for greeting (before translation)
+        # Step 1: Check for greeting (detect language first, then check)
         if is_greeting(query):
             logger.info("[MAIN] Greeting detected")
             print("[MAIN] -> Type: GREETING")
-            return generate_greeting_response()
+            # Build greeting in English then translate to user's language
+            greeting_msg = "Hello! I'm MediSense AI, your multilingual medical assistant. How can I help you today? Please describe your health concerns or symptoms."
+            greeting_response = json.dumps({
+                "type": "general",
+                "answer": greeting_msg
+            }, ensure_ascii=False)
+            return translate_response_json(greeting_response, user_language)
         
         # Step 2: Translate to English for processing
         query_en = translate_to_english(query) if user_language != "en" else query
         logger.info(f"[LANG] Translated query: {query_en}")
-        print(f"[MAIN] → Translated: {query_en[:60]}...")
+        print(f"[MAIN] -> Translated: {query_en[:60]}...")
         
         # Step 3: Classify query (using English version)
         query_type = classify_query(query_en)
         logger.info(f"[TYPE] Classification: {query_type}")
-        print(f"[MAIN] → Type: {query_type.upper()}")
+        print(f"[MAIN] -> Type: {query_type.upper()}")
         
         # ═══════════════════════════════════════════════════════════════════
-        #  GENERAL PIPELINE (Perplexity Style)
+        #  GENERAL PIPELINE
         # ═══════════════════════════════════════════════════════════════════
         if query_type == "general":
-                        # General queries are not supported in pure medical assistant mode
-            logger.info("[MAIN] Non-health query received – returning info response")
+            logger.info("[MAIN] Non-health query received - returning info response")
+            # Use type 'general' so frontend can render the answer bubble
             info_response = json.dumps({
-                "type": "info",
-                "message": "I am MediSense AI, a healthcare assistant. Please describe your symptoms or ask a health-related question."
+                "type": "general",
+                "answer": "I am MediSense AI, a dedicated healthcare assistant. I can help you with health concerns, symptoms, and medical guidance. Please describe your symptoms or ask a health-related question."
             }, ensure_ascii=False)
             return translate_response_json(info_response, user_language)
         
@@ -761,12 +910,17 @@ def get_response(query: str) -> str:
             logger.info(f"[SYMPTOMS] Extracted: {symptoms}")
             print(f"[MAIN]   └─ Symptoms: {symptoms}")
             
-            # Step 2: Follow-up gatekeeper (ask for more info if <2 symptoms)
-            if len(symptoms) < 2:
-                logger.info(f"[HEALTH] Only {len(symptoms)} symptom(s) - asking follow-ups")
-                print(f"[MAIN]   └─ Insufficient symptoms ({len(symptoms)}) → Requesting follow-ups")
+            # Step 2: Follow-up gatekeeper (Phase 3: Doctor Behavior)
+            # Count user messages in history. If less than 2, and low symptoms, ask follow-ups.
+            user_msg_count = 0
+            if chat_history:
+                user_msg_count = sum(1 for m in chat_history if m.get("role") == "user")
+            
+            if user_msg_count < 2 and len(symptoms) < 3:
+                logger.info(f"[HEALTH] Insufficient context (messages: {user_msg_count}, symptoms: {len(symptoms)}) - asking follow-ups")
+                print(f"[MAIN]   └─ Insufficient context → Requesting follow-ups")
                 
-                followup_questions = generate_followup_questions(symptoms)
+                followup_questions = generate_followup_questions(symptoms, chat_history, llm, tokenizer)
                 response = json.dumps({
                     "type": "question",
                     "questions": followup_questions
@@ -780,9 +934,8 @@ def get_response(query: str) -> str:
             logger.info(f"[RISK] Level: {risk_level} | Emergency: {is_emergency_case}")
             print(f"[MAIN]   └─ Risk: {risk_level} | Emergency: {is_emergency_case}")
             
-            # Step 4: Retrieve medical context from FAISS
-            vector_store = load_vector_store()
-            faiss_context = retrieve_medical_context(vector_store, query_en) if vector_store else ""
+            # Step 4: Retrieve medical context from FAISS (Phase 9: k=3 retrieval)
+            faiss_context = retrieve_medical_context(vector_store, query_en, k=3) if vector_store else ""
             logger.info(f"[FAISS] Context length: {len(faiss_context)} chars")
             
             # Step 5: Generate medical analysis
@@ -792,7 +945,9 @@ def get_response(query: str) -> str:
                 symptoms,
                 risk_level,
                 is_emergency_case,
-                user_language
+                user_language,
+                llm,
+                tokenizer
             )
             
             print(f"[MAIN] ✓ Medical analysis ready")

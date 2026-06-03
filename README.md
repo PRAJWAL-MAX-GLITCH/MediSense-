@@ -1,160 +1,79 @@
 # 🩺 MediSense AI — Intelligent Health Risk Assistant
 
-MediSense AI is a **full‑stack AI‑powered health guidance platform**. It combines a Retrieval‑Augmented Generation (RAG) pipeline, a local FAISS vector store, and Hugging Face LLM inference to deliver safe, structured medical advice.
+MediSense AI is a **full-stack AI-powered health guidance platform**. It combines a Retrieval-Augmented Generation (RAG) pipeline, a local FAISS vector store, and Hugging Face LLM inference to deliver safe, structured medical advice.
 
 ---
 
-## 🚀 Premium Features
-- **Next.js 14 + TypeScript** front‑end with **Tailwind CSS**, glass‑morphism UI, and smooth animated transitions.
-- **Voice Input** – speak symptoms directly via the microphone button.
-- **Multi‑turn Follow‑up** – the assistant asks clarifying questions when needed.
-- **Symptom Extraction Engine** (`symptom_extractor.py`) – detects 35+ clinical keywords.
-- **Risk Assessment** (`decision_engine.py`) – computes **LOW / MEDIUM / HIGH** risk and an **emergency flag**.
-- **RAG Pipeline** – LangChain + FAISS with `all‑MiniLM‑L6‑v2` embeddings retrieves the most relevant clinical excerpts.
-- **Dual LLM Support**
-  - ☁️ **Cloud** – Hugging Face Serverless API (`Qwen/Qwen2.5‑7B‑Instruct`).
-  - 💻 **Local** – Auto‑download of `Qwen/Qwen2.5‑0.5B‑Instruct` if no token is supplied.
-- **Structured JSON Responses** – `{ symptoms, risk, condition, advice, emergency }`.
-- **Dynamic Risk Badges** – 🚨 Emergency, ⚠️ Moderate, 🛡️ Low risk.
-- **Persisted Chat History** – stored in `localStorage` with a sidebar navigator.
-- **Test Suite** – `test_response.py` validates the end‑to‑end RAG flow.
+## 🚀 Features
+- **Medical RAG** – LangChain + FAISS retrieves relevant clinical excerpts.
+- **Follow-up Questions** – The assistant asks clarifying questions when needed.
+- **Risk Assessment** – Computes **LOW / MEDIUM / HIGH** risk.
+- **Emergency Detection** – Flags critical symptoms immediately.
+- **Voice Features** – Speak symptoms directly via the microphone button.
+- **Consultation History** – Persisted in `localStorage` with a sidebar navigator.
+- **PDF Reports** – Generate PDF summaries of your consultations.
+- **Multilingual Support** – Integrated translation capabilities.
 
 ---
 
-## 📂 Project Structure
-```text
-MediSense/
-├── .gitignore
-├── README.md
-├── package.json                # Monorepo config (frontend & backend)
-├── backend/
-│   ├── .env.example           # Template for environment variables
-│   ├── main.py                # FastAPI entry point
-│   ├── ai/
-│   │   ├── symptom_extractor.py   # Symptom detection
-│   │   └── decision_engine.py     # Risk calculation
-│   ├── data/
-│   │   ├── raw/               # 14 vetted clinical text files
-│   │   └── vector_store/      # FAISS index (generated locally, not committed)
-│   └── rag/
-│       ├── create_index.py      # Build FAISS index
-│       ├── response.py          # Core RAG + LLM pipeline (symptoms‑first)
-│       ├── test_response.py     # CLI end‑to‑end test
-│       └── test_retrieval.py    # FAISS retrieval test
-└── frontend/
-    ├── package.json
-    ├── next.config.js
-    ├── tailwind.config.ts
-    ├── tsconfig.json
-    └── src/
-        ├── app/
-        │   ├── layout.tsx      # Root layout with Google Fonts
-        │   ├── page.tsx        # Home page
-        │   └── globals.css     # Dark theme, glow effects
-        ├── components/
-        │   └── ChatInterface.tsx   # Full chat UI
-        └── hooks/
-            └── useChat.ts      # Chat state, API calls, localStorage
-```
+## ⚙️ Local Setup
 
----
-
-## ⚙️ Installation & Setup
 ### Prerequisites
-- **Python 3.9+**
-- **Node.js 18+**
-- Modern browser (Chrome recommended for voice input)
+- **Python 3.9+**
+- **Node.js 18+**
 
-### 1️⃣ Clone the Repository
+### 1️⃣ Backend Setup
 ```bash
-git clone https://github.com/PRAJWAL-MAX-GLITCH/MediSense-.git
-cd MediSense-
-```
-
-### 2️⃣ Backend Setup
-```bash
-# Virtual environment
+cd backend
 python -m venv .venv
-.venv\Scripts\Activate.ps1   # Windows PowerShell
-# .venv/bin/activate          # macOS / Linux
+# Activate virtual environment
+# Windows: .venv\Scripts\Activate.ps1
+# Mac/Linux: source .venv/bin/activate
 
-# Install Python dependencies
-pip install -r backend/requirements.txt
-```
-> *If `requirements.txt` does not exist, install the packages manually as listed in the original docs.*
+pip install -r requirements.txt
+cp .env.example .env
 
-### 3️⃣ Configure Environment Variables
-```bash
-cp backend/.env.example backend/.env
+# Optional: Add HF Token in .env to use cloud inference
+uvicorn main:app --reload
 ```
-Edit `backend/.env` and add your free Hugging Face token (optional):
-```env
-HUGGINGFACEHUB_API_TOKEN=your_token_here
-```
-*Without a token the app will fall back to the lightweight local model.*
 
-### 4️⃣ Build the Knowledge Base (one‑time)
-```bash
-python backend/rag/create_index.py
-```
-### 5️⃣ Frontend Setup
+### 2️⃣ Frontend Setup
 ```bash
 cd frontend
 npm install
+npm run dev
 ```
+Visit `http://localhost:3000` to start chatting!
 
 ---
 
-## ▶️ Running the Application
-Open **two terminals**:
-1️⃣ **Backend**
-```bash
-# From project root, with venv active
-python backend/main.py
-```
-2️⃣ **Frontend**
-```bash
-cd frontend
-npm run dev   # Starts Next.js dev server on http://localhost:3000
-```
-Visit the URL and start chatting!
+## ☁️ Deployment Instructions
 
----
+MediSense AI is deployment-ready for cloud platforms. **Render** is recommended as the simplest default for this stack.
 
-## 🧪 Testing
-A small test harness is provided to ensure the RAG pipeline works end‑to‑end:
-```bash
-python backend/rag/test_response.py "I have a persistent cough and mild fever"
-```
-The script prints the structured JSON response and verifies that the vector store loads correctly.
+### Option A: Deploying on Render (Recommended)
+1. **Backend**:
+   - Create a new **Web Service** and connect your GitHub repo.
+   - **Root Directory**: `backend`
+   - **Environment**: Python
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Env Vars**: Add your `JWT_SECRET_KEY` and `HUGGINGFACEHUB_API_TOKEN`.
 
----
+2. **Frontend**:
+   - Create a new **Static Site**.
+   - **Root Directory**: `frontend`
+   - **Build Command**: `npm run build`
+   - **Publish Directory**: `out` (or `.next` depending on your Next.js config).
 
-## 📚 How It Works
-```mermaid
-flowchart TD
-    A[User inputs symptoms] --> B[Symptom Extractor]
-    B --> C[Risk Assessment]
-    C --> D[FAISS Vector Store]
-    D --> E[LLM (cloud/local)]
-    E --> F[JSON Response]
-    F --> G[Next.js UI]
-```
+### Option B: Deploying on Railway
+1. **Backend**:
+   - Railway will automatically detect the `Procfile` and `runtime.txt` in the root.
+   - Adjust the `Procfile` path to point to `backend.main:app`.
+   - Add your environment variables in the Railway dashboard.
 
----
-
-## 🛠️ Tech Stack
-| Layer | Technology |
-|---|---|
-| Frontend | Next.js 14, TypeScript, Tailwind CSS |
-| UI Styling | Glassmorphism, CSS animations |
-| Backend | FastAPI, Python 3.9+ |
-| LLM | Qwen2.5‑7B (cloud) / Qwen2.5‑0.5B (local) |
-| Embeddings | `all‑MiniLM‑L6‑v2` via sentence‑transformers |
-| Vector Store | FAISS (local) |
-| RAG Framework | LangChain + LangChain‑HuggingFace |
-| Translation | deep‑translator + langdetect |
-| Web Search (optional) | Tavily API |
+2. **Frontend**:
+   - Deploy as a Next.js service. Railway will automatically run `npm install` and `npm run build`.
 
 ---
 

@@ -3,11 +3,6 @@ node_modules/
 .next/
 npm-debug.log*
 
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
 # Environments
 .env
 .venv
@@ -17,7 +12,15 @@ ENV/
 env.bak/
 venv.bak/
 
-# Vector stores / generated databases
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+dist/
+
+# Database & AI Caches
+medisense.db
 backend/data/vector_store/
 *.faiss
 *.pkl

@@ -31,8 +31,10 @@ import {
   Volume2,
   VolumeX,
   ShieldCheck,
+  Download,
 } from "lucide-react";
 import { useChat } from "@/hooks/useChat";
+import AuthModal from "./AuthModal";
 
 // ─────────────────────────────────────────────
 //  MOCK DATA DEFINITIONS
@@ -87,6 +89,53 @@ export default function ChatInterface() {
     deleteChat,
     setCurrentSessionId,
   } = useChat();
+
+  // Auth State
+  const [token, setToken] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("token") || null;
+    }
+    return null;
+  });
+
+  const handleLogin = (newToken) => {
+    setToken(newToken);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("token", newToken);
+    }
+  };
+
+  const handleLogout = () => {
+    setToken(null);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      // Fully clear session state and redirect to login by reloading
+      window.location.reload();
+    }
+  };
+
+  const handleDownloadPdf = async (e, id) => {
+    e.stopPropagation();
+    try {
+      if (!token) return;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const res = await fetch(`${apiUrl}/consultations/${id}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("Failed to download PDF");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Consultation_${id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      triggerToast("PDF downloaded successfully", "success");
+    } catch (err) {
+      triggerToast("Failed to download PDF", "error");
+    }
+  };
 
   // Navigation State
   const [activeTab, setActiveTab] = useState("chat");
@@ -152,15 +201,22 @@ export default function ChatInterface() {
       try {
         const parsed = JSON.parse(text);
         if (parsed.type === "analysis") {
-          cleanText = `Analysis complete. Possible condition: ${parsed.condition}. General advice: ${parsed.advice}.`;
+          const conds = Array.isArray(parsed.possible_conditions)
+            ? parsed.possible_conditions.join(", ")
+            : "unknown condition";
+          const recs = Array.isArray(parsed.recommendations)
+            ? parsed.recommendations.slice(0, 2).join(". ")
+            : (parsed.advice || "");
+          cleanText = `Medical analysis complete. Possible conditions: ${conds}. Risk level: ${parsed.risk_level || "unknown"}. ${recs}`;
         } else if (parsed.type === "question") {
-          cleanText = `I have a few follow up questions: ${parsed.questions.join(". ")}`;
+          cleanText = `I have a few follow up questions: ${(parsed.questions || []).join(". ")}`;
         } else if (parsed.type === "general") {
-          cleanText = parsed.answer;
+          cleanText = parsed.answer || "";
         }
       } catch {
         // Treat as plain text
       }
+      if (!cleanText || !cleanText.trim()) return;
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang =
         selectedLang === "hi"
@@ -290,22 +346,23 @@ export default function ChatInterface() {
         if (m.parsed?.type === "analysis") count++;
       });
     });
-    return count || 3; // Fallback dummy for better initial UI
+    return count || 3;
   };
 
   const getRisksDetected = () => {
     let risks = 0;
     sessions.forEach((s) => {
       s.messages.forEach((m) => {
+        const rl = m.parsed?.risk_level || m.parsed?.risk || "";
         if (
           m.parsed?.type === "analysis" &&
-          (m.parsed.risk === "HIGH" || m.parsed.risk === "MEDIUM")
+          (rl.toUpperCase() === "HIGH" || rl.toUpperCase() === "MEDIUM")
         ) {
           risks++;
         }
       });
     });
-    return risks || 1; // Fallback dummy
+    return risks || 1;
   };
 
   const getLatestAnalysis = () => {
@@ -338,17 +395,19 @@ export default function ChatInterface() {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        height: "100vh",
-        background: "#000000",
-        color: "#f1f5f9",
-        fontFamily: "Inter, sans-serif",
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
+    <>
+      {!token && <AuthModal onLogin={handleLogin} />}
+      <div
+        style={{
+          display: "flex",
+          height: "100vh",
+          background: "#000000",
+          color: "#f1f5f9",
+          fontFamily: "Inter, sans-serif",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
       {/* Toast Notification Container */}
       <div
         style={{
@@ -646,25 +705,44 @@ export default function ChatInterface() {
                         <Clock size={12} style={{ opacity: 0.5 }} />
                         {s.title}
                       </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteChat(s.id);
-                        }}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "#475569",
-                          cursor: "pointer",
-                          fontSize: 12,
-                          padding: "0 2px",
-                          flexShrink: 0,
-                          lineHeight: 1,
-                        }}
-                        className="hover:text-red-400"
-                      >
-                        ✕
-                      </button>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button
+                          onClick={(e) => handleDownloadPdf(e, s.dbConsultationId || s.id)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#475569",
+                            cursor: s.dbConsultationId ? "pointer" : "not-allowed",
+                            fontSize: 12,
+                            padding: "0 2px",
+                            flexShrink: 0,
+                            lineHeight: 1,
+                          }}
+                          title={s.dbConsultationId ? "Download PDF" : "PDF not available for this session"}
+                        >
+                          <Download size={14} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteChat(s.id);
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#475569",
+                            cursor: "pointer",
+                            fontSize: 12,
+                            padding: "0 2px",
+                            flexShrink: 0,
+                            lineHeight: 1,
+                          }}
+                          className="hover:text-red-400"
+                          title="Delete Session"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -749,48 +827,122 @@ export default function ChatInterface() {
                 </button>
               </div>
 
-              {/* User Profile Footer */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: "50%",
-                    background: "linear-gradient(135deg,#0891b2,#06b6d4)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 13,
-                    fontWeight: 800,
-                    color: "#fff",
-                    boxShadow: "0 0 8px rgba(8, 145, 178, 0.3)",
-                  }}
-                >
-                  P
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}
-                  >
-                    Prajwal
-                  </div>
-                  <div style={{ fontSize: 10, color: "#64748b" }}>
-                    Enterprise Tier
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowSettingsModal(true)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "#64748b",
+              {/* User Profile Footer with Dropdown */}
+              <div style={{ position: "relative" }}>
+                <div 
+                  onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                  className="hover:bg-slate-800"
+                  style={{ 
+                    display: "flex", 
+                    alignItems: "center", 
+                    gap: 10,
+                    padding: "8px",
+                    borderRadius: "12px",
                     cursor: "pointer",
-                    padding: 4,
+                    transition: "all 0.2s"
                   }}
-                  className="hover:text-cyan-400"
                 >
-                  <Settings size={15} />
-                </button>
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: "50%",
+                      background: "linear-gradient(135deg,#0891b2,#06b6d4)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 13,
+                      fontWeight: 800,
+                      color: "#fff",
+                      boxShadow: "0 0 8px rgba(8, 145, 178, 0.3)",
+                    }}
+                  >
+                    <User size={16} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    >
+                      My Account
+                    </div>
+                    <div style={{ fontSize: 10, color: "#64748b" }}>
+                      Standard Plan
+                    </div>
+                  </div>
+                  <ChevronDown size={14} color="#64748b" />
+                </div>
+                
+                {showProfileDropdown && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: "100%",
+                      left: 0,
+                      marginBottom: 8,
+                      background: "#0F172A",
+                      border: "1px solid rgba(8, 145, 178, 0.2)",
+                      borderRadius: 12,
+                      padding: 6,
+                      zIndex: 100,
+                      width: "100%",
+                      boxShadow: "0 -8px 30px rgba(0,0,0,0.6)",
+                    }}
+                  >
+                    {[
+                      { label: "My Profile", action: () => triggerToast("Profile coming soon") },
+                      { label: "Consultation History", action: () => setActiveTab("chat") },
+                      { label: "Saved Reports", action: () => triggerToast("Reports coming soon") },
+                      { label: "Settings", action: () => setShowSettingsModal(true) },
+                    ].map((item, i) => (
+                      <button
+                        key={i}
+                        onClick={() => {
+                          item.action();
+                          setShowProfileDropdown(false);
+                        }}
+                        style={{
+                          width: "100%",
+                          padding: "8px 12px",
+                          borderRadius: 8,
+                          border: "none",
+                          background: "transparent",
+                          color: "#cbd5e1",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          textAlign: "left"
+                        }}
+                        className="hover:bg-slate-800 hover:text-cyan-400"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                    
+                    <div style={{ height: 1, background: "rgba(255,255,255,0.05)", margin: "4px 0" }} />
+                    
+                    <button
+                      onClick={() => {
+                        handleLogout();
+                        setShowProfileDropdown(false);
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "8px 12px",
+                        borderRadius: 8,
+                        border: "none",
+                        background: "transparent",
+                        color: "#ef4444",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        textAlign: "left"
+                      }}
+                      className="hover:bg-slate-800"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>
@@ -2020,9 +2172,9 @@ export default function ChatInterface() {
 
                       // 3. Health Analysis PREMIUM SaaS Card
                       if (parsed.type === "analysis") {
-                        const isHigh =
-                          parsed.risk === "HIGH" || parsed.emergency;
-                        const isMed = parsed.risk === "MEDIUM";
+                        const riskLvl = (parsed.risk_level || parsed.risk || "LOW").toUpperCase();
+                        const isHigh = riskLvl === "HIGH" || parsed.emergency;
+                        const isMed = riskLvl === "MEDIUM";
                         const borderColor = isHigh
                           ? "rgba(239, 68, 68, 0.35)"
                           : isMed
@@ -2033,6 +2185,31 @@ export default function ChatInterface() {
                           : isMed
                             ? ""
                             : "glow-cyan";
+
+                        // Normalise fields from new schema
+                        const conditions = Array.isArray(parsed.possible_conditions)
+                          ? parsed.possible_conditions
+                          : parsed.possible_conditions
+                            ? [String(parsed.possible_conditions)]
+                            : [parsed.condition || "Unable to determine"];
+
+                        const recommendations = Array.isArray(parsed.recommendations)
+                          ? parsed.recommendations
+                          : parsed.advice
+                            ? [parsed.advice]
+                            : ["Consult a healthcare professional."];
+
+                        const emergencyIndicators = Array.isArray(parsed.emergency_indicators)
+                          ? parsed.emergency_indicators
+                          : [];
+
+                        const riskExplanation =
+                          parsed.risk_explanation ||
+                          parsed.answer ||
+                          "Please consult a healthcare professional for proper evaluation.";
+
+                        const symptoms = Array.isArray(parsed.symptoms) ? parsed.symptoms : [];
+
                         return (
                           <div
                             key={msg.id}
@@ -2061,7 +2238,7 @@ export default function ChatInterface() {
                               <Activity size={18} color="#fff" />
                             </div>
                             <div style={{ flex: 1 }}>
-                              {/* Interactive Hospital Badge header */}
+                              {/* Risk Badge */}
                               <div style={{ marginBottom: 12 }}>
                                 {isHigh ? (
                                   <span
@@ -2078,7 +2255,7 @@ export default function ChatInterface() {
                                       fontWeight: 700,
                                     }}
                                   >
-                                    🚨 Emergency Alert - Seek Medical Evaluation
+                                    🚨 Emergency Alert – Seek Immediate Medical Care
                                   </span>
                                 ) : isMed ? (
                                   <span
@@ -2095,7 +2272,7 @@ export default function ChatInterface() {
                                       fontWeight: 700,
                                     }}
                                   >
-                                    ⚠️ Moderate Diagnostic Risk Profile
+                                    ⚠️ Moderate Diagnostic Risk — Monitor Closely
                                   </span>
                                 ) : (
                                   <span
@@ -2112,7 +2289,7 @@ export default function ChatInterface() {
                                       fontWeight: 700,
                                     }}
                                   >
-                                    🛡️ Standard / Low Threat Assessment
+                                    🛡️ Low Risk — Standard Assessment
                                   </span>
                                 )}
                               </div>
@@ -2132,107 +2309,132 @@ export default function ChatInterface() {
                               >
                                 <div
                                   style={{
-                                    borderBottom:
-                                      "1px solid rgba(255,255,255,0.03)",
+                                    borderBottom: "1px solid rgba(255,255,255,0.03)",
                                     paddingBottom: 14,
                                     display: "flex",
                                     justifyContent: "space-between",
                                     alignItems: "center",
                                   }}
                                 >
-                                  <span
-                                    style={{
-                                      fontSize: 14,
-                                      color: "#94a3b8",
-                                      fontWeight: 700,
-                                    }}
-                                  >
+                                  <span style={{ fontSize: 14, color: "#94a3b8", fontWeight: 700 }}>
                                     CLINICAL GUIDANCE RETRIEVAL
                                   </span>
-                                  <span
-                                    style={{
-                                      fontSize: 10,
-                                      color: "#475569",
-                                      fontWeight: 600,
-                                    }}
-                                  >
+                                  <span style={{ fontSize: 10, color: "#475569", fontWeight: 600 }}>
                                     RAG-VERIFIED MATCH
                                   </span>
                                 </div>
 
-                                {[
-                                  {
-                                    label: "🩺 Identified Symptoms",
-                                    value:
-                                      Array.isArray(parsed.symptoms) &&
-                                      parsed.symptoms.length > 0
-                                        ? parsed.symptoms.join(", ")
-                                        : "No prominent symptoms classified",
-                                    accent: "#0891b2",
-                                  },
-                                  {
-                                    label: "📌 Target Possible Condition",
-                                    value: parsed.condition,
-                                    accent: "#06b6d4",
-                                  },
-                                  {
-                                    label: "💊 Clinical Recommendations",
-                                    value: parsed.advice,
-                                    accent: "#10b981",
-                                  },
-                                ].map(({ label, value, accent }) => (
-                                  <div
-                                    key={label}
-                                    style={{
-                                      borderLeft: `3px solid ${accent}`,
-                                      paddingLeft: 18,
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        fontSize: 11,
-                                        textTransform: "uppercase",
-                                        letterSpacing: "0.08em",
-                                        color: "#64748b",
-                                        marginBottom: 6,
-                                        fontWeight: 700,
-                                      }}
-                                    >
-                                      {label}
+                                {/* Symptoms */}
+                                {symptoms.length > 0 && (
+                                  <div style={{ borderLeft: "3px solid #0891b2", paddingLeft: 18 }}>
+                                    <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "#64748b", marginBottom: 6, fontWeight: 700 }}>
+                                      🩺 Identified Symptoms
                                     </div>
-                                    <div
-                                      style={{
-                                        fontSize: 18,
-                                        lineHeight: 1.6,
-                                        color: "#f1f5f9",
-                                      }}
-                                    >
-                                      {value}
+                                    <div style={{ fontSize: 15, lineHeight: 1.6, color: "#f1f5f9" }}>
+                                      {symptoms.join(" · ")}
                                     </div>
                                   </div>
-                                ))}
+                                )}
+
+                                {/* Possible Conditions */}
+                                <div style={{ borderLeft: "3px solid #06b6d4", paddingLeft: 18 }}>
+                                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "#64748b", marginBottom: 8, fontWeight: 700 }}>
+                                    📌 Possible Conditions
+                                  </div>
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                    {conditions.map((cond, ci) => (
+                                      <span
+                                        key={ci}
+                                        style={{
+                                          fontSize: 13,
+                                          fontWeight: 700,
+                                          background: "rgba(6,182,212,0.08)",
+                                          border: "1px solid rgba(6,182,212,0.25)",
+                                          color: "#22d3ee",
+                                          borderRadius: 8,
+                                          padding: "5px 12px",
+                                        }}
+                                      >
+                                        {typeof cond === "object" ? cond.name || JSON.stringify(cond) : cond}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {/* Risk Explanation */}
+                                <div style={{ borderLeft: "3px solid #f59e0b", paddingLeft: 18 }}>
+                                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "#64748b", marginBottom: 6, fontWeight: 700 }}>
+                                    ⚡ Risk Assessment
+                                  </div>
+                                  <div style={{ fontSize: 14, lineHeight: 1.7, color: "#f1f5f9" }}>
+                                    {riskExplanation}
+                                  </div>
+                                </div>
+
+                                {/* Clinical Recommendations */}
+                                <div style={{ borderLeft: "3px solid #10b981", paddingLeft: 18 }}>
+                                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "#64748b", marginBottom: 8, fontWeight: 700 }}>
+                                    💊 Clinical Recommendations
+                                  </div>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                    {recommendations.map((rec, ri) => (
+                                      <div key={ri} style={{ fontSize: 14, lineHeight: 1.6, color: "#e2e8f0", display: "flex", gap: 8 }}>
+                                        <span style={{ color: "#10b981", fontWeight: 800, flexShrink: 0 }}>✓</span>
+                                        <span>{rec}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {/* Emergency Indicators */}
+                                {emergencyIndicators.length > 0 && (
+                                  <div style={{ borderLeft: "3px solid #ef4444", paddingLeft: 18 }}>
+                                    <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "#64748b", marginBottom: 8, fontWeight: 700 }}>
+                                      🚨 Seek Emergency Care If
+                                    </div>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                                      {emergencyIndicators.map((ind, ii) => (
+                                        <div key={ii} style={{ fontSize: 13, lineHeight: 1.5, color: "#fca5a5", display: "flex", gap: 8 }}>
+                                          <span style={{ flexShrink: 0 }}>⚠</span>
+                                          <span>{ind}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Additional Notes */}
+                                {parsed.additional_notes && (
+                                  <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 10, padding: "10px 14px" }}>
+                                    <div style={{ fontSize: 11, color: "#475569", lineHeight: 1.5, fontStyle: "italic" }}>
+                                      ℹ️ {parsed.additional_notes}
+                                    </div>
+                                  </div>
+                                )}
 
                                 {/* Action Footer */}
                                 <div
                                   style={{
                                     display: "flex",
                                     gap: 12,
-                                    borderTop:
-                                      "1px solid rgba(255,255,255,0.03)",
+                                    borderTop: "1px solid rgba(255,255,255,0.03)",
                                     paddingTop: 18,
+                                    flexWrap: "wrap",
                                   }}
                                 >
                                   <button
-                                    onClick={() =>
-                                      triggerToast(
-                                        "Clinical PDF successfully generated!",
-                                        "success",
-                                      )
-                                    }
+                                    onClick={(e) => {
+                                      // Find the consultationId from the current message
+                                      const consultId = msg.consultationId;
+                                      if (!consultId) {
+                                        triggerToast("PDF not yet saved. Please wait a moment.", "warning");
+                                        return;
+                                      }
+                                      handleDownloadPdf(e, consultId);
+                                    }}
                                     style={{
                                       background: "rgba(255,255,255,0.01)",
-                                      border:
-                                        "1px solid rgba(255,255,255,0.04)",
+                                      border: "1px solid rgba(255,255,255,0.04)",
                                       color: "#fff",
                                       fontSize: 12,
                                       fontWeight: 700,
@@ -2245,16 +2447,43 @@ export default function ChatInterface() {
                                     📥 Save Report (PDF)
                                   </button>
                                   <button
-                                    onClick={() =>
-                                      triggerToast(
-                                        "Link copied. Telemetry report shared with Dr. Samantha Miller!",
-                                        "success",
-                                      )
-                                    }
+                                    onClick={() => {
+                                      // Build a formatted plain-text report to copy
+                                      const p = msg.parsed || {};
+                                      const conditions = Array.isArray(p.possible_conditions)
+                                        ? p.possible_conditions.map((c) => (typeof c === "object" ? c.name : c)).join(", ")
+                                        : p.possible_conditions || "N/A";
+                                      const recs = Array.isArray(p.recommendations)
+                                        ? p.recommendations.map((r, i) => `${i + 1}. ${r}`).join("\n")
+                                        : p.recommendations || "N/A";
+                                      const emergency = Array.isArray(p.emergency_indicators)
+                                        ? p.emergency_indicators.join("\n- ")
+                                        : p.emergency_indicators || "N/A";
+                                      const report = [
+                                        "=== MediSense AI – Clinical Report ===",
+                                        `Date: ${new Date().toLocaleString()}`,
+                                        "",
+                                        `Risk Level: ${(p.risk_level || "N/A").toUpperCase()}`,
+                                        `Risk Summary: ${p.risk_explanation || "N/A"}`,
+                                        "",
+                                        `Possible Conditions: ${conditions}`,
+                                        "",
+                                        "Recommendations:",
+                                        recs,
+                                        "",
+                                        "Emergency Indicators:",
+                                        `- ${emergency}`,
+                                        "",
+                                        "Disclaimer: This is AI-generated information for educational purposes only. Consult a qualified doctor.",
+                                      ].join("\n");
+
+                                      navigator.clipboard.writeText(report)
+                                        .then(() => triggerToast("Report copied to clipboard! Share with your physician.", "success"))
+                                        .catch(() => triggerToast("Could not copy. Please try manually.", "warning"));
+                                    }}
                                     style={{
                                       background: "rgba(8, 145, 178, 0.1)",
-                                      border:
-                                        "1px solid rgba(8, 145, 178, 0.22)",
+                                      border: "1px solid rgba(8, 145, 178, 0.22)",
                                       color: "#22d3ee",
                                       fontSize: 12,
                                       fontWeight: 700,
@@ -2338,7 +2567,7 @@ export default function ChatInterface() {
               </div>
 
               {/* Glowing Voice Wave visualization for voice mode */}
-              {listening && (
+              {(listening || isLoading || speaking) && (
                 <div
                   style={{
                     position: "fixed",
@@ -2376,7 +2605,7 @@ export default function ChatInterface() {
                       letterSpacing: "0.1em",
                     }}
                   >
-                    MediSense Voice Active - Listening...
+                    {listening ? "Listening..." : isLoading ? "Processing..." : speaking ? "Speaking..." : ""}
                   </span>
                 </div>
               )}
@@ -2832,64 +3061,47 @@ export default function ChatInterface() {
                         marginBottom: 10,
                       }}
                     >
-                      <span
-                        style={{
-                          width: 10,
-                          height: 10,
-                          borderRadius: "50%",
-                          background:
-                            activeAnalysis.risk === "HIGH"
-                              ? "#ef4444"
-                              : activeAnalysis.risk === "MEDIUM"
-                                ? "#f59e0b"
-                                : "#10b981",
-                          display: "inline-block",
-                        }}
-                      />
-                      <span
-                        style={{
-                          fontSize: 15,
-                          fontWeight: 700,
-                          color: "#e2e8f0",
-                        }}
-                      >
-                        {activeAnalysis.condition}
+                      {(() => {
+                        const rl = (activeAnalysis.risk_level || activeAnalysis.risk || "LOW").toUpperCase();
+                        const dotColor = rl === "HIGH" ? "#ef4444" : rl === "MEDIUM" ? "#f59e0b" : "#10b981";
+                        return (
+                          <span
+                            style={{
+                              width: 10, height: 10, borderRadius: "50%",
+                              background: dotColor, display: "inline-block", flexShrink: 0,
+                            }}
+                          />
+                        );
+                      })()}
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0", lineHeight: 1.3 }}>
+                        {Array.isArray(activeAnalysis.possible_conditions) && activeAnalysis.possible_conditions.length > 0
+                          ? activeAnalysis.possible_conditions[0]
+                          : (activeAnalysis.condition || "Assessment pending")}
                       </span>
                     </div>
-                    <p
-                      style={{
-                        fontSize: 12,
-                        color: "#94a3b8",
-                        lineHeight: 1.4,
-                      }}
-                    >
+                    {Array.isArray(activeAnalysis.possible_conditions) && activeAnalysis.possible_conditions.length > 1 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+                        {activeAnalysis.possible_conditions.slice(1).map((c, i) => (
+                          <span key={i} style={{ fontSize: 10, color: "#64748b", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 4, padding: "2px 6px" }}>
+                            {typeof c === "object" ? c.name : c}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.4 }}>
                       Risk priority:{" "}
-                      <span
-                        style={{
-                          fontWeight: 700,
-                          color:
-                            activeAnalysis.risk === "HIGH"
-                              ? "#f87171"
-                              : activeAnalysis.risk === "MEDIUM"
-                                ? "#fbbf24"
-                                : "#34d399",
-                        }}
-                      >
-                        {activeAnalysis.risk}
-                      </span>
+                      {(() => {
+                        const rl = (activeAnalysis.risk_level || activeAnalysis.risk || "LOW").toUpperCase();
+                        const col = rl === "HIGH" ? "#f87171" : rl === "MEDIUM" ? "#fbbf24" : "#34d399";
+                        return <span style={{ fontWeight: 700, color: col }}>{rl}</span>;
+                      })()}
                     </p>
                   </div>
                 ) : (
                   <div>
-                    <p
-                      style={{
-                        fontSize: 12,
-                        color: "#64748b",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      No active medical analysis evaluated yet. Submit symptom
-                      query in the chat area to populate insights.
+                    <p style={{ fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
+                      No active medical analysis yet. Submit a symptom query in
+                      the chat area to populate insights.
                     </p>
                   </div>
                 )}
@@ -3605,6 +3817,42 @@ export default function ChatInterface() {
                     <option value="mr">मराठी (Marathi)</option>
                   </select>
                 </div>
+
+                {/* Logout Section */}
+                <div
+                  style={{
+                    borderTop: "1px solid rgba(255,255,255,0.04)",
+                    paddingTop: 16,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  <h4 style={{ fontSize: 14, fontWeight: 700, color: "#f1f5f9" }}>
+                    Account
+                  </h4>
+                  <button
+                    onClick={() => {
+                      handleLogout();
+                      setShowSettingsModal(false);
+                      triggerToast("Logged out successfully.", "success");
+                    }}
+                    style={{
+                      width: "100%",
+                      background: "rgba(239,68,68,0.08)",
+                      border: "1px solid rgba(239,68,68,0.25)",
+                      color: "#fca5a5",
+                      padding: "10px 14px",
+                      borderRadius: 10,
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    🔒 Sign Out
+                  </button>
+                </div>
               </div>
 
               <button
@@ -3628,5 +3876,6 @@ export default function ChatInterface() {
         )}
       </AnimatePresence>
     </div>
+    </>
   );
 }
