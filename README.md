@@ -16,14 +16,16 @@ MediSense AI is a **full-stack AI-powered health guidance platform**. It combine
 
 ---
 
-## 🛠️ Tech Stack
-| Layer | Technology |
+## 🛠️ Tech Stack & Libraries
+| Layer | Technology / Libraries Used |
 |---|---|
-| **Frontend** | Next.js 14, React, Tailwind CSS |
-| **Backend** | FastAPI, Python 3.11, Uvicorn |
+| **Frontend** | Next.js 14, React, Tailwind CSS, Framer Motion, Radix UI, Axios |
+| **Backend** | FastAPI, Python 3.11, Uvicorn, Python-Multipart |
 | **Database** | SQLite, SQLAlchemy |
-| **AI / NLP** | LangChain, Hugging Face, FAISS, PyTorch |
-| **Auth** | JWT, bcrypt |
+| **AI / NLP** | LangChain, Hugging Face, FAISS-CPU, Sentence-Transformers, PyTorch |
+| **Translation** | Deep-Translator, Langdetect |
+| **PDF Generation** | ReportLab |
+| **Auth** | JWT (python-jose), bcrypt |
 
 ---
 
@@ -55,36 +57,6 @@ npm install
 npm run dev
 ```
 Visit `http://localhost:3000` to start chatting!
-
----
-
-## ☁️ Deployment Instructions
-
-MediSense AI is deployment-ready for cloud platforms. **Render** is recommended as the simplest default for this stack.
-
-### Option A: Deploying on Render (Recommended)
-1. **Backend**:
-   - Create a new **Web Service** and connect your GitHub repo.
-   - **Root Directory**: `backend`
-   - **Environment**: Python
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-   - **Env Vars**: Add your `JWT_SECRET_KEY` and `HUGGINGFACEHUB_API_TOKEN`.
-
-2. **Frontend**:
-   - Create a new **Static Site**.
-   - **Root Directory**: `frontend`
-   - **Build Command**: `npm run build`
-   - **Publish Directory**: `out` (or `.next` depending on your Next.js config).
-
-### Option B: Deploying on Railway
-1. **Backend**:
-   - Railway will automatically detect the `Procfile` and `runtime.txt` in the root.
-   - Adjust the `Procfile` path to point to `backend.main:app`.
-   - Add your environment variables in the Railway dashboard.
-
-2. **Frontend**:
-   - Deploy as a Next.js service. Railway will automatically run `npm install` and `npm run build`.
 
 ---
 
